@@ -119,42 +119,53 @@ def prepare_rag_context(message: str, history: List[Tuple[str, str]]):
     return rag_prompt, search_query, good_docs, limited_history
 
 async def generate_response_stream(message: str, history: List[Tuple[str, str]], db: Session):
-    start_time = time.time()
+    start_time = time.time() # 1. شغل العداد
+    
     rag_prompt, search_query, docs, _ = prepare_rag_context(message, history)
+    
     full_answer = ""
+    first_token_time = None # متغير لحفظ زمن أول حرف
     
     if not rag_prompt:
         err_msg = "عذراً، قاعدة البيانات غير جاهزة."
         yield err_msg
         full_answer = err_msg
+        # في حالة الخطأ نحسب الوقت الكلي ونعتبره TTFT
+        response_time_to_log = time.time() - start_time
+        
     else:
         try:
             async for chunk in llm.astream(rag_prompt):
                 if chunk.content:
+                    # 2. اللحظة الحاسمة: هل هذه أول قطعة تصل؟
+                    if first_token_time is None:
+                        # نعم! أوقف العداد فوراً واحفظ الوقت (وهذا هو TTFT)
+                        first_token_time = time.time() - start_time
+                    
                     full_answer += chunk.content
                     yield chunk.content
+            
+            # 3. نحدد زمن الرد للحفظ: TTFT إن وُجد، وإلا الزمن الكلي
+            response_time_to_log = first_token_time if first_token_time is not None else (time.time() - start_time)
+
         except Exception as e:
             yield f"Error: {str(e)}"
-
-    # الحفظ في قاعدة البيانات
-    end_time = time.time()
-    duration = end_time - start_time
+            response_time_to_log = time.time() - start_time # زمن الخطأ
+            
+    # 4. الحفظ الموحد والوحيد في قاعدة البيانات
     try:
         new_log = models.ChatLog(
             user_query=message,
             bot_answer=full_answer,
-            response_time=duration,
+            response_time=response_time_to_log, # <--- تم حفظ القيمة الموحدة (TTFT أو الكلي)
             timestamp=datetime.now()
         )
         db.add(new_log)
         db.commit()
+        print(f"--- [LOG] Response Time Saved: {response_time_to_log:.2f}s ---")
     except Exception as e:
         print(f"--- [ERROR] DB Save failed: {e} ---")
 
-
-# ==========================================
-# نقاط النهاية (Endpoints)
-# ==========================================
 
 # 1. الصفحة الرئيسية (للطلاب)
 @app.get("/", response_class=HTMLResponse)

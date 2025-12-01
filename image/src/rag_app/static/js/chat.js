@@ -65,24 +65,34 @@ if (userInput) {
 // دالة إرسال الرسالة (الأساسية)
 // ==========================================
 async function sendMessage() {
-    // 1. التحقق من وجود نص
-    if (!userInput) return; // حماية إضافية
+    // 1. فحوصات الأمان
+    if (!userInput) return; 
     const text = userInput.value.trim();
     if (!text) return;
 
-    // 2. تعطيل الواجهة (بشكل آمن)
+    // 2. تعطيل الواجهة
     if (userInput) userInput.disabled = true;
     if (sendBtn) sendBtn.disabled = true;
 
-    // 3. عرض رسالة المستخدم فوراً
+    // 3. عرض رسالة المستخدم
     appendMessage(text, 'user-message');
     userInput.value = '';
     userInput.style.height = 'auto'; 
 
-    // 4. إنشاء عنصر الرد (Placeholder)
+    // 4. إنشاء فقاعة الرد وبداخلها المؤشر
     const botMsgDiv = document.createElement('div');
     botMsgDiv.className = 'message bot-message';
-    botMsgDiv.innerHTML = '<span class="typing-indicator">جاري الكتابة... ⏳</span>';
+    
+    // تصميم المؤشر
+    botMsgDiv.innerHTML = `
+        <div class="typing-indicator">
+            <span>جاري الرد</span>
+            <span class="typing-dot"></span>
+            <span class="typing-dot"></span>
+            <span class="typing-dot"></span>
+        </div>
+    `;
+    
     chatBox.appendChild(botMsgDiv);
     chatBox.scrollTop = chatBox.scrollHeight;
 
@@ -100,42 +110,52 @@ async function sendMessage() {
         const reader = response.body.getReader();
         const decoder = new TextDecoder("utf-8");
         
-        botMsgDiv.innerHTML = ""; // مسح مؤشر الكتابة
-        let fullBotResponse = "";
+        // ---------------------------------------------------------
+        // التعديل هنا: حذفنا السطر الذي كان يمسح المؤشر فوراً
+        // botMsgDiv.innerHTML = "";  <-- تم الحذف ❌
+        // ---------------------------------------------------------
 
-        // قراءة الستريم (Stream)
+        let fullBotResponse = "";
+        let isFirstChunk = true; // متغير جديد لمعرفة أول دفعة
+
         while (true) {
             const { done, value } = await reader.read();
             if (done) break;
             
             const chunk = decoder.decode(value, { stream: true });
+            
+            // إذا كانت الدفعة فارغة (مجرد إشارة اتصال)، تجاهلها ولا تمسح المؤشر
+            if (!chunk) continue;
+
+            // ✅ الآن فقط: إذا وصلت أول كلمة حقيقية، نمسح المؤشر
+            if (isFirstChunk) {
+                botMsgDiv.innerHTML = ""; // مسح "جاري الرد"
+                botMsgDiv.classList.remove('typing'); // لو كنت تستخدم كلاس معين (اختياري)
+                isFirstChunk = false;
+            }
+
             fullBotResponse += chunk;
 
-            // تحويل الماركداون (Markdown) وتنظيف الـ HTML
+            // العرض والتحويل
             if (typeof marked !== 'undefined' && typeof DOMPurify !== 'undefined') {
-                // نستخدم marked.parse إذا كانت دالة، وإلا قد تكون marked() حسب الإصدار
                 const rawHTML = typeof marked.parse === 'function' ? marked.parse(fullBotResponse) : marked(fullBotResponse);
                 botMsgDiv.innerHTML = DOMPurify.sanitize(rawHTML);
             } else {
-                botMsgDiv.innerText = fullBotResponse; // fallback
+                botMsgDiv.innerText = fullBotResponse;
             }
             
-            // السكرول التلقائي للأسفل
             chatBox.scrollTop = chatBox.scrollHeight;
         }
 
-        // تحديث سجل المحادثة
         chatHistory.push([text, fullBotResponse]);
 
     } catch (error) {
         console.error("Chat Error:", error);
-        botMsgDiv.innerText = "عذراً، حدث خطأ في الاتصال بالسيرفر.";
-        botMsgDiv.style.color = "red";
+        botMsgDiv.innerHTML = "<span style='color:red'>عذراً، حدث خطأ في الاتصال.</span>";
     } finally {
-        // 5. إعادة تفعيل الواجهة (بشكل آمن)
         if (userInput) {
             userInput.disabled = false;
-            userInput.focus(); // إعادة المؤشر للكتابة
+            userInput.focus();
         }
         if (sendBtn) {
             sendBtn.disabled = false;

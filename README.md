@@ -12,7 +12,7 @@ If you want to test without Docker:
 ## 3. Docker image
 
 #### Build Docker image
-`docker build -t my-rag-app`
+`docker build -t my-rag-app .`
 #### Run docker image
 
 `docker run -p 80:80 --env-file .env my-rag-app`
@@ -31,9 +31,11 @@ If you want to test without Docker:
 `docker push ebrahemhesham/rag-app:v1`
 
 #### Update AWS Service
-```aws ecs update-service \```
-```   --cluster default \```
-```  --service sstli-chatbot-spot \```
-```  --force-new-deployment```
+```
+aws ecs update-service \
+   --cluster default \
+   --service sstli-chatbot-spot \
+   --force-new-deployment 
+```
     
 

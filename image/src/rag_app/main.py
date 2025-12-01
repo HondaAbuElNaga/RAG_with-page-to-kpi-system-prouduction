@@ -40,7 +40,7 @@ models.Base.metadata.create_all(bind=engine)
 
 # Make BASE_DIR dynamic 
 BASE_DIR = Path(__file__).resolve().parent 
-print(BASE_DIR)
+DATA_DIR = BASE_DIR / "data"
 # Update TEMPLATES_DIR 
 TEMPLATES_DIR = BASE_DIR / "templates"
 #  Point to the chroma_db folder inside your app directory
@@ -128,7 +128,7 @@ def prepare_rag_context(message: str, history: List[Tuple[str, str]]):
 
     search_query = message
 
-    # 2. إعادة صياغة السؤال (هنا الحل السحري لمشكلتك)
+    # 2. إعادة صياغة السؤال)
     if history:
         # هذا البرومبت يطلب من الموديل فهم "نية" المستخدم وليس مجرد كلماته
         rephrase_prompt = f"""
@@ -167,7 +167,8 @@ def prepare_rag_context(message: str, history: List[Tuple[str, str]]):
     1. هدفك هو مساعدة الطالب بناءً على "المعلومات المسترجعة" و "سياق المحادثة".
     2. لا تبدأ الإجابة بكلمات مثل "الجواب:" أو "الإجابة هي". ادخل في الموضوع مباشرة.
     3. راقب "تاريخ المحادثة": إذا كان المستخدم قد استوفى شرطاً ذكرته له سابقاً، لا تكرر الشرط، بل أعطه الخطوة التالية (مثل رابط التسجيل أو طريقة التقديم).
-    
+    4. اذا سأل المتدرب عن أسعار  أي دبلوم أو دورة ارسل له الرقم الموحد 920012673 
+    5. اذا تم سؤالك عن التسجيل أو الرغبة في التسجيل ارسل الرقم الموحد 920012673 
     المعلومات المسترجعة (Context):
     {knowledge}
     

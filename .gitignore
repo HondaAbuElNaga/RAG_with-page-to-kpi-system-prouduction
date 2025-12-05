@@ -3,3 +3,4 @@ image\src\data\chroma_db
 __pycache__
 RAG_prouduction
 command.txt
+aws\task-def-v2.json.txt

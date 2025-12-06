@@ -1,6 +1,8 @@
 .env
-chroma_db
+image\src\data\chroma_db
 __pycache__
-requirements.txt
 RAG_prouduction
 command.txt
+aws
+aws\task-def-v2.json.txt
+image\src\rag_app\test.py

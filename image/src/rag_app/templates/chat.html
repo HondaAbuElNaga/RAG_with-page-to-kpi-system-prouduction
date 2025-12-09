@@ -11,10 +11,10 @@
     <style>
         /* --- الألوان والهوية (Blue Theme) --- */
         :root {
-            --primary-blue: #0d6efd;       /* الأزرق الأساسي */
-            --dark-blue: #0a58ca;          /* أزرق غامق للتحويم */
+            --primary-blue: #0baa2d;       /* الأزرق الأساسي */
+            --dark-blue: #068321;          /* أزرق غامق للتحويم */
             --light-bg: #eef2f7;           /* خلفية سماوي فاتح جداً */
-            --user-msg-bg: #0d6efd;        /* لون رسالة المستخدم */
+            --user-msg-bg: #008537;        /* لون رسالة المستخدم */
             --bot-msg-bg: #ffffff;         /* لون رسالة البوت */
         }
 
@@ -71,16 +71,22 @@
         /* تنسيق الروابط داخل الرسائل */
         .bot-message a { color: var(--primary-blue); text-decoration: underline; font-weight: bold; }
         .bot-message ul, .bot-message ol { margin: 8px 0; padding-right: 20px; }
-        .bot-message strong { color: #004085; }
+        .bot-message strong { color: #008537; }
 
         /* --- مؤشر الكتابة (النقط) --- */
         .typing-indicator {
-            display: none; 
-            align-self: flex-end; 
-            background-color: transparent; 
-            padding: 5px 10px;
-            margin-bottom: 5px;
+            display: none;
+            align-self: flex-end;
+            background-color: #fff;
+            padding: 10px 15px;
+            border-radius: 15px;
+            border-bottom-left-radius: 4px;
+            margin-bottom: 10px;
             width: fit-content;
+            
+            /* --- التعديلات الجديدة لجعل الحدود واضحة --- */
+            border: 2px solid #adb5bd; /* إطار رمادي واضح */
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1); /* ظل أقوى قليلاً للبروز */
         }
         
         .typing-dot {
@@ -150,7 +156,7 @@
 
     <div class="chat-container" id="chatBox">
         <div class="message bot-message">
-            <i class="fas fa-robot text-primary me-2 ms-2"></i>
+            <!-- <i class="fas fa-robot text-primary me-2 ms-2"></i> -->
             <strong>مرحباً بك!</strong><br>
             أنا المساعد الذكي للمعهد. كيف يمكنني خدمتك اليوم؟
         </div>

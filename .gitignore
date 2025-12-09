@@ -7,3 +7,8 @@ command.txt
 aws
 aws\task-def-v2.json.txt
 image\src\rag_app\test.py
+ecs-task-definition.json
+# Docker persistent data folder
+.vscode/
+docker-compose.yml
+AWS_DEPLOYMENT.md

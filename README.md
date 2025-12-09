@@ -1,4 +1,4 @@
-## 2. Run Locally (Python)
+## 1. Run Locally (Python)
 If you want to test without Docker:
 
 #### Install dependencies

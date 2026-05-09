@@ -27,8 +27,72 @@
             color: var(--text-dark);
             font-family: 'Segoe UI', Tahoma, sans-serif;
             margin: 0;
-            padding: 20px;
+            padding: 0;
         }
+        /* =========================================
+          (Sidebar)
+           ========================================= */
+        .app-wrapper {
+            display: flex;
+            min-height: 100vh;
+        }
+
+        .sidebar {
+            width: 260px;
+            background: var(--bg-card);
+            border-left: 1px solid var(--border-color);
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            position: sticky;
+            top: 0;
+            height: 100vh;
+        }
+
+        .sidebar-brand {
+            font-size: 20px;
+            font-weight: bold;
+            color: var(--main-green);
+            margin-bottom: 40px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .sidebar-nav {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            flex: 1; /* لأخذ المساحة المتبقية ودفع زر الخروج للأسفل */
+        }
+
+        .nav-item {
+            padding: 12px 15px;
+            border-radius: 8px;
+            color: var(--text-dark);
+            text-decoration: none;
+            font-weight: bold;
+            font-size: 14px;
+            transition: 0.3s;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+.nav-item:hover { background: #f0f0f0; }
+        .nav-item.active { background: var(--main-green); color: white; }
+        
+        .nav-item-logout {
+            color: var(--hot-red);
+            margin-top: auto;
+        }
+        .nav-item-logout:hover { background: #fee2e2; }
+
+        .main-content {
+            flex: 1;
+            padding: 30px;
+            overflow-y: auto;
+        }
+
 
         .dashboard {
             max-width: 1000px;
@@ -389,6 +453,13 @@
             .main-grid {
                 grid-template-columns: 1fr; 
             }
+            .sidebar {
+                width: 100%;
+                height: auto;
+                position: static;
+                border-left: none; 
+                border-bottom: 1px solid var(--border-color);
+            }
             .stats-grid {
                 grid-template-columns: 1fr 1fr;
             }
@@ -399,287 +470,300 @@
     </style>
 </head>
 <body>
-
-<div class="dashboard">
-
-    <header>
-        <div>
-            <h2 style="margin:0; color:var(--main-green)">RAG dashboard data analysis</h2>
-            <small style="color:var(--text-muted)">
-                <span id="header-week-num">{{ week_label }}</span> — مرحباً، {{ username }}
-            </small>
+<div class="app-wrapper">
+    <aside class="sidebar">
+        <div class="sidebar-brand">
+            🤖أدارة العملاء
         </div>
-        <div style="display:flex; gap:10px; align-items:center;">
-            <div class="live-tag">● مباشر</div>
-            <a href="/dashboard/logout" class="logout-btn">خروج</a>
-        </div>
-    </header>
-
-    <div class="week-tabs">
-        <button class="tab" onclick="prevWeek()">◀ الأسبوع السابق</button>
-        <button class="tab active" id="weekLabel">{{ week_label }}</button>
-        <button class="tab" onclick="nextWeek()">الأسبوع التالي ▶</button>
-    </div>
-
-    <div class="alert-bar" id="weeklyNoteBar"
-         style="{% if not sections.get('weekly_note', False) or not (weekly_note and weekly_note.is_published)%}display:none;{% endif %}">
-        💡 <b>فريق تحليل البيانات:</b>
-        <span id="weeklyNoteText">{{ weekly_note.content if weekly_note else '' }}</span>
-    </div>
-
-    <div class="stats-grid">
-        <div class="stat-card">
-            <div class="stat-title">Sessions هذا الأسبوع</div>
-            <div class="stat-value" id="stat-leads">{{ week_session_count }}</div>
-            <div class="stat-change">leads معتمدة</div>
-        </div>
-        <div class="stat-card">
-            <div class="stat-title">Hot Leads 🔥</div>
-            <div class="stat-value" id="stat-hot" style="color: var(--hot-red);">
-                {{ week_hot }}
-            </div>
-            <div style="font-size:10px; color:var(--text-muted)">سألوا عن سعر / تسجيل</div>
-        </div>
-        <div class="stat-card">
-            <div class="stat-title">Warm Leads ⚡</div>
-            <div class="stat-value" id="stat-warm" style="color: var(--warm-yellow);">
-                {{ week_warm }}
-            </div>
-            <div style="font-size:10px; color:var(--text-muted)">أسئلة كثيرة</div>
-        </div>
-        <div class="stat-card">
-            <div class="stat-title">أعلى عدد أسئلة</div>
-            <div class="stat-value" id="stat-maxq">
-                {{ week_maxq }}
-            </div>
-            <div style="font-size:10px; color:var(--text-muted)">في session واحدة</div>
-        </div>
-    </div>
-
-    <div class="main-grid">
-
-        <div class="content-box {% if not sections.get('hot_leads', False) %}section-hidden{% endif %}" style="display: flex; flex-direction: column; height: 100%;">
-            <div class="box-title">🔥 Hot Leads — للمتابعة</div>
+        <nav class="sidebar-nav">
+            <a href="/dashboard" class="nav-item active">📊 الرئيسية</a>
             
-            {% set hot  = leads | selectattr('lead_status', 'equalto', 'hot')  | list %}
-            {% set warm = leads | selectattr('lead_status', 'equalto', 'warm') | list %}
-            {% set visible_leads = (hot + warm) %}
+            <a href="/dashboard/leads-report" class="nav-item">استفسارات العملاء</a>
             
-            <div class="faq-scroll" style="flex: 1; overflow-y: auto; min-height: 0;">
-                <table>
-                    <thead>
-                        <tr><th>ID</th><th>عدد الأسئلة</th><th>الحالة</th></tr>
-                    </thead>
-                    <tbody id="leadsTableBody">
-                        {% if visible_leads %}
-                            {% for lead in visible_leads %}
-                            <tr>
-                                <td style="color:var(--text-muted); font-family:monospace;">#{{ lead.id }}</td>
-                                <td><strong>{{ lead.question_count }}</strong> أسئلة</td>
-                                <td>
-                                    {% if lead.lead_status == 'hot' %}
-                                        <span class="tag tag-hot">Hot 🔥</span>
-                                    {% elif lead.lead_status == 'warm' %}
-                                        <span class="tag tag-warm">Warm ⚡</span>
-                                    {% else %}
-                                        <span class="tag tag-cold">Cold</span>
-                                    {% endif %}
-                                </td>
-                            </tr>
-                            {% endfor %}
-                        {% else %}
-                            <tr>
-                                <td colspan="3" style="text-align:center; color:var(--text-muted); font-size:13px; padding: 20px;">
-                                    لا يوجد leads معتمدة بعد
-                                </td>
-                            </tr>
+            <a href="/dashboard/logout" class="nav-item nav-item-logout">🚪 تسجيل الخروج</a>
+        </nav>
+    </aside>
+<main class="main-content">
+    <div class="dashboard">
+
+        <header>
+            <div>
+                <h2 style="margin:0; color:var(--main-green)">لوحة التحكم تحليل  بيانات العملاء</h2>
+                <small style="color:var(--text-muted)">
+                    <span id="header-week-num">{{ week_label }}</span> — مرحباً، {{ username }}
+                </small>
+            </div>
+            <div style="display:flex; gap:10px; align-items:center;">
+                <div class="live-tag">● مباشر</div>
+                <a href="/dashboard/logout" class="logout-btn">خروج</a>
+            </div>
+        </header>
+
+        <div class="week-tabs">
+            <button class="tab" onclick="prevWeek()">◀ الأسبوع السابق</button>
+            <button class="tab active" id="weekLabel">{{ week_label }}</button>
+            <button class="tab" onclick="nextWeek()">الأسبوع التالي ▶</button>
+        </div>
+
+        <div class="alert-bar" id="weeklyNoteBar"
+            style="{% if not sections.get('weekly_note', False) or not (weekly_note and weekly_note.is_published)%}display:none;{% endif %}">
+            💡 <b>فريق تحليل البيانات:</b>
+            <span id="weeklyNoteText">{{ weekly_note.content if weekly_note else '' }}</span>
+        </div>
+
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-title">Sessions هذا الأسبوع</div>
+                <div class="stat-value" id="stat-leads">{{ week_session_count }}</div>
+                <div class="stat-change">leads معتمدة</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-title">Hot Leads 🔥</div>
+                <div class="stat-value" id="stat-hot" style="color: var(--hot-red);">
+                    {{ week_hot }}
+                </div>
+                <div style="font-size:10px; color:var(--text-muted)">سألوا عن سعر / تسجيل</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-title">Warm Leads ⚡</div>
+                <div class="stat-value" id="stat-warm" style="color: var(--warm-yellow);">
+                    {{ week_warm }}
+                </div>
+                <div style="font-size:10px; color:var(--text-muted)">أسئلة كثيرة</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-title">أعلى عدد أسئلة</div>
+                <div class="stat-value" id="stat-maxq">
+                    {{ week_maxq }}
+                </div>
+                <div style="font-size:10px; color:var(--text-muted)">في session واحدة</div>
+            </div>
+        </div>
+
+        <div class="main-grid">
+
+            <div class="content-box {% if not sections.get('hot_leads', False) %}section-hidden{% endif %}" style="display: flex; flex-direction: column; height: 100%;">
+                <div class="box-title">🔥 Hot Leads — للمتابعة</div>
+                
+                {% set hot  = leads | selectattr('lead_status', 'equalto', 'hot')  | list %}
+                {% set warm = leads | selectattr('lead_status', 'equalto', 'warm') | list %}
+                {% set visible_leads = (hot + warm) %}
+                
+                <div class="faq-scroll" style="flex: 1; overflow-y: auto; min-height: 0;">
+                    <table>
+                        <thead>
+                            <tr><th>ID</th><th>عدد الأسئلة</th><th>الحالة</th></tr>
+                        </thead>
+                        <tbody id="leadsTableBody">
+                            {% if visible_leads %}
+                                {% for lead in visible_leads %}
+                                <tr>
+                                    <td style="color:var(--text-muted); font-family:monospace;">#{{ lead.id }}</td>
+                                    <td><strong>{{ lead.question_count }}</strong> أسئلة</td>
+                                    <td>
+                                        {% if lead.lead_status == 'hot' %}
+                                            <span class="tag tag-hot">Hot 🔥</span>
+                                        {% elif lead.lead_status == 'warm' %}
+                                            <span class="tag tag-warm">Warm ⚡</span>
+                                        {% else %}
+                                            <span class="tag tag-cold">Cold</span>
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            {% else %}
+                                <tr>
+                                    <td colspan="3" style="text-align:center; color:var(--text-muted); font-size:13px; padding: 20px;">
+                                        لا يوجد leads معتمدة بعد
+                                    </td>
+                                </tr>
+                            {% endif %}
+                        </tbody>
+                    </table>
+                </div> 
+
+                <div class="action-buttons" style="margin-top: 15px;">
+                    <div id="leads-report-link-wrapper">
+                        {% if leads_report %}
+                        <a href="/view-report/{{ leads_report.id }}" target="_blank"
+                            style="display:block; background:#2d5a45; color:white; padding:10px;
+                                border-radius:8px; text-align:center; font-weight:700;
+                                font-size:13px; text-decoration:none; margin-bottom:8px;">
+                            📋 عرض آخر تقرير مرفوع
+                        </a>
                         {% endif %}
-                    </tbody>
-                </table>
-            </div> 
+                    </div>
+                    
+                    <button class="btn-main-action" onclick="openContactModal('leads')" style="width: 100%;">
+                        📥 اطلب بيانات العملاء بالكامل
+                    </button>
+                </div>
+            </div>
 
-            <div class="action-buttons" style="margin-top: 15px;">
-                <div id="leads-report-link-wrapper">
-                    {% if leads_report %}
-                    <a href="/view-report/{{ leads_report.id }}" target="_blank"
-                        style="display:block; background:#2d5a45; color:white; padding:10px;
-                            border-radius:8px; text-align:center; font-weight:700;
-                            font-size:13px; text-decoration:none; margin-bottom:8px;">
-                        📋 عرض آخر تقرير مرفوع
-                    </a>
+            <div class="content-box {% if not sections.get('top_questions', False) %}section-hidden{% endif %}" style="display: flex; flex-direction: column; height: 100%;">
+                <div class="box-title">📊 أكثر الأسئلة هذا الأسبوع</div>
+                <div id="bars-container" class="faq-scroll" style="flex: 1;">
+                    <p style="color:var(--text-muted); font-size:13px; text-align:center;">
+                        جاري التحميل...
+                    </p>
+                </div>
+            </div>
+
+        </div>
+
+        <div class="main-grid">
+
+            <div class="content-box {% if not sections.get('top_questions', False) %}section-hidden{% endif %}">
+                <div class="box-title">❓ الأسئلة  (مفصلة)</div>
+                <div id="faq-container" class="faq-scroll">
+                    {% if top_questions %}
+                        {% for q in top_questions %}
+                        <div class="faq-item">
+                            <span class="faq-num">{{ loop.index }}.</span>
+                            {{ q.user_query[:80] }}{% if q.user_query|length > 80 %}...{% endif %}
+                        </div>
+                        {% endfor %}
+                    {% else %}
+                    <p style="color:var(--text-muted); font-size:13px; text-align:center; margin:auto;">
+                        لا تتوفر أسئلة بعد
+                    </p>
                     {% endif %}
                 </div>
-                
-                <button class="btn-main-action" onclick="openContactModal('leads')" style="width: 100%;">
-                    📥 اطلب بيانات العملاء بالكامل
+                <button class="btn-main-action" onclick="exportQuestionsList()">
+                    تصدير قائمة الأسئلة
                 </button>
             </div>
+
+            <div class="content-box">
+                <div class="box-title">🚫 أسئلة بلا رد مباشر</div>
+                {% if sections.get('unanswered_questions', False) %}
+                <div id="unanswered-container" class="faq-scroll">
+                    <p style="color:var(--text-muted); font-size:13px; text-align:center;">
+                        جاري التحميل...
+                    </p>
+                </div>
+                {% else %}
+                <div class="locked-area">
+                    <span class="lock-icon">🔒</span>
+                    <p style="font-size:11px; color:var(--text-muted); margin:0;">
+                        تحليل أسبوعي لغلق فجوات الردود
+                    </p>
+                </div>
+                {% endif %}
+                <button class="btn-secondary" onclick="openContactModal('unanswered_questions')">
+                    ↗ اطلب تقرير الأسئلة المفقودة
+                </button>
+            </div>
+
         </div>
 
-        <div class="content-box {% if not sections.get('top_questions', False) %}section-hidden{% endif %}" style="display: flex; flex-direction: column; height: 100%;">
-            <div class="box-title">📊 أكثر الأسئلة هذا الأسبوع</div>
-            <div id="bars-container" class="faq-scroll" style="flex: 1;">
-                <p style="color:var(--text-muted); font-size:13px; text-align:center;">
-                    جاري التحميل...
+        <div class="content-box" style="margin-bottom: 20px;">
+            <div class="box-title">📅 تحليل أوقات الذروة</div>
+
+            {% if not sections.get('peak_hours', False) %}
+            <div class="locked-area" style="padding:10px 0;">
+                <span class="lock-icon">🔒</span>
+                <p style="font-size:11px; color:var(--text-muted); margin-bottom:10px;">
+                    لمعرفة أنسب وقت لحملاتك الإعلانية
                 </p>
             </div>
-        </div>
-
-    </div>
-
-    <div class="main-grid">
-
-        <div class="content-box {% if not sections.get('top_questions', False) %}section-hidden{% endif %}">
-            <div class="box-title">❓ الأسئلة  (مفصلة)</div>
-            <div id="faq-container" class="faq-scroll">
-                {% if top_questions %}
-                    {% for q in top_questions %}
-                    <div class="faq-item">
-                        <span class="faq-num">{{ loop.index }}.</span>
-                        {{ q.user_query[:80] }}{% if q.user_query|length > 80 %}...{% endif %}
+            {% else %}
+            <div id="peak-reports-container">
+                {% if peak_reports %}
+                    {% for report in peak_reports %}
+                    <div style="background:#f9f7f2; border-radius:10px; padding:12px 16px;
+                                border:1px solid #e0dcd0; margin-bottom:10px;
+                                display:flex; justify-content:space-between; align-items:center;">
+                        <div>
+                            <div style="font-weight:700; font-size:13px; color:#1a4332;">
+                                📆 {{ report['period_label'] }}
+                            </div>
+                            <div style="font-size:11px; color:#aaa; margin-top:3px;">
+                                {{ report['uploaded_at'] }}
+                            </div>
+                        </div>
+                        <a href="/dashboard/peak-report/{{ report['id'] }}" target="_blank"
+                            style="background:#1a4332; color:white; padding:6px 16px;
+                                border-radius:8px; font-size:12px; text-decoration:none;
+                                font-weight:700;">
+                            عرض التقرير
+                        </a>
                     </div>
                     {% endfor %}
                 {% else %}
-                <p style="color:var(--text-muted); font-size:13px; text-align:center; margin:auto;">
-                    لا تتوفر أسئلة بعد
-                </p>
+                <div class="locked-area" style="padding:10px 0;">
+                    <span class="lock-icon">⏳</span>
+                    <p style="font-size:11px; color:var(--text-muted); margin-bottom:10px;">
+                        لم يتم رفع تقرير هذا الأسبوع بعد
+                    </p>
+                </div>
                 {% endif %}
             </div>
-            <button class="btn-main-action" onclick="exportQuestionsList()">
-                تصدير قائمة الأسئلة
+            <button class="btn-main-action"
+                style="width:auto; padding:10px 60px; margin:10px auto 0;"
+                onclick="openContactModal('peak_hours')">
+                اطلب تقرير الذروة
             </button>
-        </div>
-
-        <div class="content-box">
-            <div class="box-title">🚫 أسئلة بلا رد مباشر</div>
-            {% if sections.get('unanswered_questions', False) %}
-            <div id="unanswered-container" class="faq-scroll">
-                <p style="color:var(--text-muted); font-size:13px; text-align:center;">
-                    جاري التحميل...
-                </p>
-            </div>
-            {% else %}
-            <div class="locked-area">
-                <span class="lock-icon">🔒</span>
-                <p style="font-size:11px; color:var(--text-muted); margin:0;">
-                    تحليل أسبوعي لغلق فجوات الردود
-                </p>
-            </div>
             {% endif %}
-            <button class="btn-secondary" onclick="openContactModal('unanswered_questions')">
-                ↗ اطلب تقرير الأسئلة المفقودة
-            </button>
         </div>
 
-    </div>
+        <div class="content-box {% if not sections.get('repeated_visitors', False) %}section-hidden{% endif %}" 
+            style="margin-bottom: 20px; background: linear-gradient(135deg, #1a4332 0%, #2d5a45 100%); border:none; color:white;">
+            
+            <div class="box-title" style="color:white; margin-bottom:20px;">
+                <span style="font-size:20px;">🔄</span>
+                <span>الزوار المتكررون</span>
+                <span style="font-size:11px; font-weight:400; opacity:0.7; margin-right:8px;">
+                    عملاء عادوا للشات أكثر من مرة
+                </span>
+            </div>
 
-    <div class="content-box" style="margin-bottom: 20px;">
-        <div class="box-title">📅 تحليل أوقات الذروة</div>
-
-        {% if not sections.get('peak_hours', False) %}
-        <div class="locked-area" style="padding:10px 0;">
-            <span class="lock-icon">🔒</span>
-            <p style="font-size:11px; color:var(--text-muted); margin-bottom:10px;">
-                لمعرفة أنسب وقت لحملاتك الإعلانية
-            </p>
-        </div>
-        {% else %}
-        <div id="peak-reports-container">
-            {% if peak_reports %}
-                {% for report in peak_reports %}
-                <div style="background:#f9f7f2; border-radius:10px; padding:12px 16px;
-                            border:1px solid #e0dcd0; margin-bottom:10px;
-                            display:flex; justify-content:space-between; align-items:center;">
-                    <div>
-                        <div style="font-weight:700; font-size:13px; color:#1a4332;">
-                            📆 {{ report['period_label'] }}
+            <div id="repeated-report-container">
+                {% if repeated_reports %}
+                    {% for report in repeated_reports %}
+                    <div style="background:rgba(255,255,255,0.1); border-radius:12px;
+                                padding:16px; margin-bottom:12px;
+                                display:flex; justify-content:space-between; align-items:center;">
+                        <div>
+                            <div style="font-weight:700; font-size:14px;">
+                                📋 {{ report['period_label'] }}
+                            </div>
+                            <div style="font-size:11px; opacity:0.7; margin-top:4px;">
+                                🕐 {{ report['uploaded_at'] }}
+                            </div>
                         </div>
-                        <div style="font-size:11px; color:#aaa; margin-top:3px;">
-                            {{ report['uploaded_at'] }}
-                        </div>
+                        <a href="/view-report/{{ report['id'] }}" target="_blank"
+                            style="background:white; color:#1a4332; padding:8px 20px;
+                                border-radius:8px; font-size:13px; text-decoration:none;
+                                font-weight:700; white-space:nowrap;">
+                            عرض ↗
+                        </a>
                     </div>
-                    <a href="/dashboard/peak-report/{{ report['id'] }}" target="_blank"
-                        style="background:#1a4332; color:white; padding:6px 16px;
-                            border-radius:8px; font-size:12px; text-decoration:none;
-                            font-weight:700;">
-                        عرض التقرير
-                    </a>
-                </div>
-                {% endfor %}
-            {% else %}
-            <div class="locked-area" style="padding:10px 0;">
-                <span class="lock-icon">⏳</span>
-                <p style="font-size:11px; color:var(--text-muted); margin-bottom:10px;">
-                    لم يتم رفع تقرير هذا الأسبوع بعد
-                </p>
+                    {% endfor %}
+                {% else %}
+                    <p style="opacity:0.6; font-size:13px; text-align:center; margin-bottom:15px;">
+                        لم يتم رفع تقرير بعد
+                    </p>
+                {% endif %}
             </div>
-            {% endif %}
-        </div>
-        <button class="btn-main-action"
-            style="width:auto; padding:10px 60px; margin:10px auto 0;"
-            onclick="openContactModal('peak_hours')">
-            اطلب تقرير الذروة
-        </button>
-        {% endif %}
-    </div>
 
-    <div class="content-box {% if not sections.get('repeated_visitors', False) %}section-hidden{% endif %}" 
-        style="margin-bottom: 20px; background: linear-gradient(135deg, #1a4332 0%, #2d5a45 100%); border:none; color:white;">
+            <button onclick="openContactModal('repeated_visitors')"
+                style="background:rgba(255,255,255,0.15); color:white; border:1.5px solid rgba(255,255,255,0.4);
+                    padding:12px 30px; border-radius:10px; cursor:pointer; font-size:14px;
+                    font-weight:700; width:100%; transition:0.3s; backdrop-filter:blur(4px);"
+                onmouseover="this.style.background='rgba(255,255,255,0.25)'"
+                onmouseout="this.style.background='rgba(255,255,255,0.15)'">
+                📊 اطلب تقرير الزوار المتكررين
+            </button>
+        </div>
+
+        <div id="categories-container"></div>
         
-        <div class="box-title" style="color:white; margin-bottom:20px;">
-            <span style="font-size:20px;">🔄</span>
-            <span>الزوار المتكررون</span>
-            <span style="font-size:11px; font-weight:400; opacity:0.7; margin-right:8px;">
-                عملاء عادوا للشات أكثر من مرة
-            </span>
-        </div>
-
-        <div id="repeated-report-container">
-            {% if repeated_reports %}
-                {% for report in repeated_reports %}
-                <div style="background:rgba(255,255,255,0.1); border-radius:12px;
-                            padding:16px; margin-bottom:12px;
-                            display:flex; justify-content:space-between; align-items:center;">
-                    <div>
-                        <div style="font-weight:700; font-size:14px;">
-                            📋 {{ report['period_label'] }}
-                        </div>
-                        <div style="font-size:11px; opacity:0.7; margin-top:4px;">
-                            🕐 {{ report['uploaded_at'] }}
-                        </div>
-                    </div>
-                    <a href="/view-report/{{ report['id'] }}" target="_blank"
-                        style="background:white; color:#1a4332; padding:8px 20px;
-                            border-radius:8px; font-size:13px; text-decoration:none;
-                            font-weight:700; white-space:nowrap;">
-                        عرض ↗
-                    </a>
-                </div>
-                {% endfor %}
-            {% else %}
-                <p style="opacity:0.6; font-size:13px; text-align:center; margin-bottom:15px;">
-                    لم يتم رفع تقرير بعد
-                </p>
-            {% endif %}
-        </div>
-
-        <button onclick="openContactModal('repeated_visitors')"
-            style="background:rgba(255,255,255,0.15); color:white; border:1.5px solid rgba(255,255,255,0.4);
-                padding:12px 30px; border-radius:10px; cursor:pointer; font-size:14px;
-                font-weight:700; width:100%; transition:0.3s; backdrop-filter:blur(4px);"
-            onmouseover="this.style.background='rgba(255,255,255,0.25)'"
-            onmouseout="this.style.background='rgba(255,255,255,0.15)'">
-            📊 اطلب تقرير الزوار المتكررين
-        </button>
+        <footer id="footer-week-info" style="text-align:center; margin-top:30px; color:var(--text-muted); font-size:11px;">
+            جميع البيانات تُحدث أسبوعياً — <span id="footer-week-num">{{ week_label }}</span> — 2026
+        </footer>
+        
     </div>
-
-    <div id="categories-container"></div>
-    
-    <footer id="footer-week-info" style="text-align:center; margin-top:30px; color:var(--text-muted); font-size:11px;">
-        جميع البيانات تُحدث أسبوعياً — <span id="footer-week-num">{{ week_label }}</span> — 2026
-    </footer>
-    
-</div>
 
 <div class="modal-overlay" id="contactModal">
     <div class="modal-box">
@@ -1114,7 +1198,7 @@ function exportQuestionsList() {
         </thead>
         <tbody>${questions}</tbody>
     </table>
-    <footer> تقرير صادر من نظام من فريق تحليل البيانات - RAG Dashboard</footer>
+    <footer>  صادر من نظام من فريق تحليل البيانات مؤشرات الاهتمام</footer>
 </body>
 </html>`;
 

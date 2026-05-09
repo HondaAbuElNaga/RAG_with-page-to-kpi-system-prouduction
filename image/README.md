@@ -53,11 +53,8 @@ aws efs create-mount-target \
 ```
 
  ## 4. to AWS CloudWatch Logs Evluated
-fields @timestamp, @message
-| filter @message like /RAG_EVAL/
-| parse @message "Question: * " as question
-| parse @message "Context: * " as context
-| parse @message "Answer: * " as answer
+fields @timestamp, question, context, answer
+| filter log_type = "RAG_EVAL"
 | sort @timestamp desc
 
 W62ZTthTZ6A6prn

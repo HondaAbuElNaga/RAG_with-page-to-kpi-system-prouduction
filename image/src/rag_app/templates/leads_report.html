@@ -2,22 +2,50 @@
 <html dir="rtl" lang="ar">
 <head>
     <meta charset="UTF-8">
-    <title>تقرير الـ Leads — {{ week_label }}</title>
+    <title>التقرير الشامل للـ Leads</title>
     <style>
-        body { font-family: 'Segoe UI', Tahoma, sans-serif; padding: 30px; color: #2c3e50; background: #f9f7f2; }
-        h1 { color: #1a4332; border-bottom: 3px solid #1a4332; padding-bottom: 10px; }
+        *, *::before, *::after { box-sizing: border-box; }
+        :root {
+            --bg-page: #f9f7f2;
+            --bg-card: #ffffff;
+            --main-green: #1a4332;
+            --text-dark: #2c3e50;
+            --text-muted: #7f8c8d;
+            --border-color: #e0dcd0;
+            --hot-red: #922b21;
+        }
+        body { background: var(--bg-page); font-family: 'Segoe UI', Tahoma, sans-serif; margin: 0; padding: 0; color: var(--text-dark); }
+        
+        /* Sidebar CSS */
+        .app-wrapper { display: flex; min-height: 100vh; }
+        .sidebar { width: 260px; background: var(--bg-card); border-left: 1px solid var(--border-color); padding: 20px; display: flex; flex-direction: column; position: sticky; top: 0; height: 100vh; }
+        .sidebar-brand { font-size: 20px; font-weight: bold; color: var(--main-green); margin-bottom: 40px; display: flex; align-items: center; gap: 10px; }
+        .sidebar-nav { display: flex; flex-direction: column; gap: 10px; flex: 1; }
+        .nav-item { padding: 12px 15px; border-radius: 8px; color: var(--text-dark); text-decoration: none; font-weight: bold; font-size: 14px; transition: 0.3s; display: flex; align-items: center; gap: 10px; }
+        .nav-item:hover { background: #f0f0f0; }
+        .nav-item.active { background: var(--main-green); color: white; }
+        .nav-item-logout { color: var(--hot-red); margin-top: auto; }
+        .nav-item-logout:hover { background: #fee2e2; }
+
+        /* Main Content & Report CSS */
+        .main-content { flex: 1; padding: 30px; overflow-y: auto; }
+        .report-container { max-width: 1400px; margin: 0 auto; background: white; padding: 30px; border-radius: 12px; box-shadow: 0 2px 10px rgba(0,0,0,0.02); border: 1px solid var(--border-color); }
+        
+        h1 { color: #1a4332; border-bottom: 3px solid #1a4332; padding-bottom: 10px; margin-top: 0; }
         .meta { color: #7f8c8d; font-size: 13px; margin-bottom: 25px; }
-        .filters { background: white; padding: 20px; border-radius: 8px; margin-bottom: 20px; box-shadow: 0 2px 10px rgba(0,0,0,0.05); display: flex; gap: 15px; flex-wrap: wrap; align-items: flex-end; }
+        .filters { background: #f9f7f2; padding: 20px; border-radius: 8px; margin-bottom: 20px; border: 1px solid var(--border-color); display: flex; gap: 15px; flex-wrap: wrap; align-items: flex-end; }
         .filter-group { display: flex; flex-direction: column; gap: 5px; }
         .filter-group label { font-size: 12px; font-weight: bold; color: #1a4332; }
         .filter-group input, .filter-group select { padding: 8px 12px; border: 1px solid #ddd; border-radius: 5px; font-size: 13px; }
         .filter-btn { padding: 8px 16px; background: #1a4332; color: white; border: none; border-radius: 5px; cursor: pointer; font-size: 13px; font-weight: bold; }
         .filter-btn:hover { background: #0f2818; }
-        table { width: 100%; border-collapse: collapse; background: white; border-radius: 10px; overflow: hidden; box-shadow: 0 2px 10px rgba(0,0,0,0.05); }
+        
+        table { width: 100%; border-collapse: collapse; background: white; border-radius: 10px; overflow: hidden; }
         th { background: #1a4332; color: white; padding: 12px 15px; text-align: right; font-size: 13px; }
-        td { padding: 11px 15px; border-bottom: 1px solid #f0ede6; font-size: 13px; }
+        td { padding: 11px 15px; border-bottom: 1px solid #f0ede6; font-size: 13px; vertical-align: middle; }
         tr:last-child td { border-bottom: none; }
         tr:hover td { background: #f9f7f2; }
+        
         .tag { padding: 3px 10px; border-radius: 12px; font-size: 11px; font-weight: bold; }
         .hot  { background: #fee2e2; color: #922b21; }
         .warm { background: #fef9c3; color: #b7950b; }
@@ -29,135 +57,343 @@
         .badge-danger  { background: #fee2e2; color: #922b21; }
         .badge-light   { background: #f1f5f9; color: #475569; }
         footer { text-align: center; margin-top: 30px; color: #aaa; font-size: 12px; }
-        .hidden { display: none; }
+        .hidden { display: none !important; }
+
+        /* UI Enhancements */
+        .note-input { width: 100%; min-width: 150px; padding: 8px; border: 1px solid #ddd; border-radius: 5px; font-size: 12px; transition: 0.3s; }
+        .note-input:focus { border-color: var(--main-green); outline: none; background: #fff; box-shadow: 0 0 5px rgba(26,67,50,0.2); }
+        .phone-container { display: flex; align-items: center; gap: 8px; }
+        .icon-btn { background: #f1f1f1; border: none; border-radius: 6px; padding: 5px 8px; cursor: pointer; transition: 0.2s; text-decoration: none; display: flex; align-items: center; justify-content: center;}
+        .icon-btn:hover { background: #e0dcd0; transform: scale(1.05); }
+        .contact-checkbox { transform: scale(1.3); cursor: pointer; accent-color: var(--main-green); }
+        .whatsapp-svg { fill: #25D366; width: 18px; height: 18px; }
+
+        /* Tooltip Popup CSS */
+        .tooltip-container { position: relative; display: inline-block; cursor: help; }
+        .tooltip-box {
+            visibility: hidden;
+            width: 280px;
+            background-color: #2c3e50;
+            color: #fff;
+            text-align: right;
+            border-radius: 8px;
+            padding: 12px 15px;
+            position: absolute;
+            z-index: 999;
+            bottom: 125%; 
+            left: 50%;
+            transform: translateX(-50%);
+            opacity: 0;
+            transition: opacity 0.3s;
+            font-size: 12px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+            max-height: 250px;
+            overflow-y: auto;
+        }
+        .tooltip-box::after {
+            content: "";
+            position: absolute;
+            top: 100%;
+            left: 50%;
+            margin-left: -5px;
+            border-width: 5px;
+            border-style: solid;
+            border-color: #2c3e50 transparent transparent transparent;
+        }
+        .tooltip-container:hover .tooltip-box {
+            visibility: visible;
+            opacity: 1;
+        }
+        .tooltip-box ul { margin: 0; padding-right: 20px; list-style-type: disc; }
+        .tooltip-box li { margin-bottom: 6px; line-height: 1.4; }
+        .tooltip-box li:last-child { margin-bottom: 0; }
+        
+        /* Toast Message */
+        #toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: #1a4332; color: white; padding: 12px 24px; border-radius: 8px; font-weight: bold; font-size: 13px; opacity: 0; transition: opacity 0.3s; pointer-events: none; z-index: 1000; box-shadow: 0 5px 15px rgba(0,0,0,0.2); }
     </style>
 </head>
 <body>
 
-<h1>تقرير الـ Leads الصادر من فريق تحليل البيانات — {{ week_label }}</h1>
-<div class="meta">
-    تاريخ الإصدار: {{ generated_at.strftime('%Y-%m-%d %H:%M') }} —
-    إجمالي الـ leads: <strong>{{ leads | length }}</strong>
+<div id="toast">تم الحفظ بنجاح ✓</div>
+
+<div class="app-wrapper">
+    <aside class="sidebar">
+        <div class="sidebar-brand">🤖 أدارة العملاء</div>
+        <nav class="sidebar-nav">
+            <a href="/dashboard" class="nav-item">📊 الرئيسية</a>
+            <a href="/dashboard/leads-report" class="nav-item active">استفسارات العملاء</a>
+            <a href="/dashboard/logout" class="nav-item nav-item-logout">🚪 تسجيل الخروج</a>
+        </nav>
+    </aside>
+
+    <main class="main-content">
+        <div class="report-container">
+            <h1>مؤشرات الاهتمام الصادر من فريق تحليل البيانات</h1>
+            <div class="meta">
+                تاريخ الإصدار: {{ generated_at.strftime('%Y-%m-%d %H:%M') }} —
+                إجمالي الـ leads: <strong id="leadCount">{{ leads | length }}</strong>
+            </div>
+
+            {% if leads %}
+            <div class="filters">
+                <div class="filter-group">
+                    <label>المدينة</label>
+                    <select id="cityFilter">
+                        <option value="">الكل</option>
+                    </select>
+                </div>
+                <div class="filter-group">
+                    <label>مسجل لدينا </label>
+                    <select id="registeredFilter">
+                        <option value="">الكل</option>
+                        <option value="yes">نعم</option>
+                        <option value="no">لا</option>
+                    </select>
+                </div>
+                <div class="filter-group">
+                    <label>حالة التواصل</label>
+                    <select id="contactedFilter">
+                        <option value="">الكل</option>
+                        <option value="yes">تم التواصل</option>
+                        <option value="no">لم يتم التواصل</option>
+                    </select>
+                </div>
+                <div class="filter-group">
+                    <label>من التاريخ</label>
+                    <input type="date" id="dateFromFilter">
+                </div>
+                <div class="filter-group">
+                    <label>إلى التاريخ</label>
+                    <input type="date" id="dateToFilter">
+                </div>
+                <button class="filter-btn" onclick="clearFilters()">مسح الفلاتر</button>
+                <button class="filter-btn" style="background: #15803d;" onclick="exportToExcel()">📊 تصدير Excel</button>
+            </div>
+
+            <table>
+                <thead>
+                    <tr>
+                        <th style="width:50px;">تم التواصل؟</th>
+                        <th>رقم الموبايل</th>
+                        <th>سجل المحادثة</th>
+                        <th>المدينة</th>
+                        <th>مسجل لدينا؟</th>
+                        <th>سعر؟</th>
+                        <th>تسجيل؟</th>
+                        <th>الحالة</th>
+                        <th style="width:250px;">الملاحظات (قابلة للتعديل)</th>
+                        <th>التاريخ</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for lead in leads %}
+                    <tr>
+                        <td style="text-align: center;">
+                            <input type="checkbox" class="contact-checkbox" 
+                                   onchange="updateLead({{ lead.id }}, 'is_contacted', this.checked)"
+                                   {% if lead.is_contacted %}checked{% endif %} title="علم هنا إذا تم التواصل">
+                        </td>
+                        <td>
+                            <div class="phone-container">
+                                <strong>{{ lead.phone_number }}</strong>
+                                <button onclick="copyPhone('{{ lead.phone_number }}')" title="نسخ الرقم" class="icon-btn" style="font-size:14px;">📋</button>
+                                <a href="javascript:void(0)" onclick="openWA('{{ lead.phone_number }}')" title="مراسلة واتساب" class="icon-btn">
+                                    <svg class="whatsapp-svg" viewBox="0 0 24 24">
+                                        <path d="M12.031 0C5.385 0 0 5.383 0 12.029c0 2.124.553 4.195 1.604 6.012L.15 23.323l5.421-1.423A11.97 11.97 0 0012.031 24c6.645 0 12-5.383 12-12.029S18.676 0 12.031 0zm-1.042 17.514a9.92 9.92 0 01-5.066-1.378l-.363-.215-3.766.988.995-3.668-.236-.375a9.931 9.931 0 01-1.516-5.335c0-5.504 4.475-9.977 9.98-9.977 5.503 0 9.978 4.473 9.978 9.977 0 5.505-4.475 9.983-9.986 9.983zm5.474-7.464c-.3-.15-1.774-.876-2.048-.976-.275-.1-.475-.15-.675.15-.2.3-.775.976-.95 1.176-.175.2-.35.225-.65.075-.3-.15-1.266-.466-2.411-1.488-.891-.795-1.492-1.777-1.667-2.077-.175-.3-.018-.462.132-.611.135-.135.3-.35.45-.525.15-.175.2-.3.3-.5.1-.2.05-.375-.025-.525-.075-.15-.675-1.626-.925-2.226-.242-.582-.487-.504-.675-.513-.175-.008-.375-.008-.575-.008-.2 0-.525.075-.8.375-.275.3-1.05 1.026-1.05 2.502s1.075 2.898 1.225 3.098c.15.2 2.113 3.226 5.118 4.525.716.31 1.275.495 1.71.633.718.228 1.371.196 1.888.118.58-.088 1.774-.726 2.024-1.426.25-.7.25-1.302.175-1.426-.075-.125-.275-.2-.575-.35z"/>
+                                    </svg>
+                                </a>
+                            </div>
+                        </td>
+                        <td style="text-align: center;">
+                            <div class="tooltip-container">
+                                <span style="font-size:18px;">💡</span>
+                                <div class="tooltip-box">
+                                    {% set qs = questions_map.get(lead.session_id, []) %}
+                                    {% if qs %}
+                                        <ul>
+                                            {% for q in qs %}
+                                                <li>{{ q }}</li>
+                                            {% endfor %}
+                                        </ul>
+                                    {% else %}
+                                        <p style="margin:0; text-align:center;">لا توجد أسئلة مسجلة</p>
+                                    {% endif %}
+                                </div>
+                            </div>
+                        </td>
+                        <td>{{ lead.city or '—' }}</td>
+                        <td>{% if lead.is_registered == 'yes' %}<span class="badge badge-success">مسجل</span>{% elif lead.is_registered == 'no' %}<span class="badge badge-danger">غير مسجل</span>{% else %}<span class="badge badge-light">غير محدد</span>{% endif %}</td>
+                        <td style="text-align: center;">{% if lead.asked_about_price %}<span class="check">✓</span>{% else %}<span class="cross">—</span>{% endif %}</td>
+                        <td style="text-align: center;">{% if lead.asked_about_registration %}<span class="check">✓</span>{% else %}<span class="cross">—</span>{% endif %}</td>
+                        <td>
+                            {% if lead.lead_status == 'hot' %}<span class="tag hot">🔥 Hot</span>
+                            {% elif lead.lead_status == 'warm' %}<span class="tag warm">⚡ Warm</span>
+                            {% else %}<span class="tag cold">Cold</span>{% endif %}
+                        </td>
+                        <td>
+                            <input type="text" class="note-input" value="{{ lead.admin_note or '' }}" 
+                                   placeholder="اكتب ملاحظة واضغط Enter..."
+                                   onblur="updateLead({{ lead.id }}, 'admin_note', this.value)"
+                                   onkeypress="if(event.key === 'Enter') this.blur();">
+                        </td>
+                        <td style="color:#aaa; font-size:12px;">{{ lead.timestamp.strftime('%Y-%m-%d %H:%M') }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% else %}
+            <p style="text-align:center; color:#aaa; padding:40px;">لا يوجد leads معتمدة بعد</p>
+            {% endif %}
+
+            <footer>تقرير صادر من فريق تحليل البيانات — RAG Dashboard — {{ generated_at.strftime('%Y') }}</footer>
+        </div>
+    </main>
 </div>
-
-{% if leads %}
-<div class="filters">
-    <div class="filter-group">
-        <label>المدينة</label>
-        <select id="cityFilter">
-            <option value="">الكل</option>
-        </select>
-    </div>
-    <div class="filter-group">
-        <label>مسجل لدينا </label>
-        <select id="registeredFilter">
-            <option value="">الكل</option>
-            <option value="yes">نعم</option>
-            <option value="no">لا</option>
-        </select>
-    </div>
-    <div class="filter-group">
-        <label>من التاريخ</label>
-        <input type="date" id="dateFromFilter">
-    </div>
-    <div class="filter-group">
-        <label>إلى التاريخ</label>
-        <input type="date" id="dateToFilter">
-    </div>
-    <button class="filter-btn" onclick="clearFilters()">مسح الفلاتر</button>
-</div>
-
-<table>
-    <thead>
-        <tr>
-            <th>ID</th>
-            <th>رقم الموبايل</th>
-            <th>المدينة</th>
-            <th>مسجل لدينا؟</th>
-            <th>عدد الأسئلة</th>
-            <th>سعر؟</th>
-            <th>تسجيل؟</th>
-            <th>الحالة</th>
-            <th>ملاحظة</th>
-            <th>التاريخ</th>
-        </tr>
-    </thead>
-    <tbody>
-        {% for lead in leads %}
-        <tr>
-            <td style="color:#aaa; font-family:monospace;">#{{ lead.id }}</td>
-            <td><strong>{{ lead.phone_number }}</strong></td>
-            <td>{{ lead.city or '—' }}</td>
-            <td>{% if lead.is_registered == 'yes' %}<span class="badge badge-success">مسجل</span>{% elif lead.is_registered == 'no' %}<span class="badge badge-danger">غير مسجل</span>{% else %}<span class="badge badge-light">غير محدد</span>{% endif %}</td>
-            <td>{{ lead.question_count }}</td>
-            <td>{% if lead.asked_about_price %}<span class="check">✓</span>{% else %}<span class="cross">—</span>{% endif %}</td>
-            <td>{% if lead.asked_about_registration %}<span class="check">✓</span>{% else %}<span class="cross">—</span>{% endif %}</td>
-            <td>
-                {% if lead.lead_status == 'hot' %}<span class="tag hot">🔥 Hot</span>
-                {% elif lead.lead_status == 'warm' %}<span class="tag warm">⚡ Warm</span>
-                {% else %}<span class="tag cold">Cold</span>{% endif %}
-            </td>
-            <td style="color:#7f8c8d;">{{ lead.admin_note or '—' }}</td>
-            <td style="color:#aaa; font-size:12px;">{{ lead.timestamp.strftime('%Y-%m-%d %H:%M') }}</td>
-        </tr>
-        {% endfor %}
-    </tbody>
-</table>
-{% else %}
-<p style="text-align:center; color:#aaa; padding:40px;">لا يوجد leads معتمدة بعد</p>
-{% endif %}
-
-<footer>
-    تقرير صادر من فريق تحليل البيانات — RAG Dashboard — {{ generated_at.strftime('%Y') }}
-</footer>
 
 <script>
+// ==========================================
+// 1. وظائف النسخ والواتساب والحفظ 
+// ==========================================
+
+function showToast(msg, isError = false) {
+    const toast = document.getElementById('toast');
+    toast.textContent = msg;
+    toast.style.background = isError ? '#922b21' : '#1a4332';
+    toast.style.opacity = '1';
+    setTimeout(() => { toast.style.opacity = '0'; }, 3000);
+}
+
+function copyPhone(phone) {
+    navigator.clipboard.writeText(phone).then(() => {
+        showToast(`تم نسخ الرقم: ${phone} 📋`);
+    }).catch(err => {
+        showToast('فشل النسخ ✕', true);
+    });
+}
+
+function openWA(phone) {
+    let waPhone = phone;
+    if (waPhone.startsWith('05')) {
+        waPhone = '966' + waPhone.substring(1);
+    } else if (waPhone.startsWith('+')) {
+        waPhone = waPhone.replace('+', '');
+    }
+    window.open(`https://wa.me/${waPhone}`, '_blank');
+}
+
+async function updateLead(leadId, field, value) {
+    const payload = {};
+    payload[field] = value;
+
+    try {
+        const res = await fetch(`/trackdashboard/leads/${leadId}/note`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        if (res.ok) {
+            showToast('تم الحفظ بنجاح ✓');
+        } else {
+            showToast('حدث خطأ أثناء الحفظ ✕', true);
+        }
+    } catch (e) {
+        showToast('حدث خطأ أثناء الحفظ ✕', true);
+    }
+}
+
+// ==========================================
+// 2. وظيفة التصدير لـ Excel (تدعم الـ RTL وتتجاهل الـ Popups)
+// ==========================================
+function exportToExcel() {
+    const table = document.querySelector("table");
+    if (!table) return;
+
+    const tableClone = table.cloneNode(true);
+    
+    // مسح الصفوف المخفية من الفلتر
+    const hiddenRows = tableClone.querySelectorAll("tr.hidden");
+    hiddenRows.forEach(row => row.parentNode.removeChild(row));
+
+    // إزالة صناديق الـ Tooltip عشان متبوظش الإكسيل
+    const tooltips = tableClone.querySelectorAll(".tooltip-box");
+    tooltips.forEach(tt => tt.parentNode.removeChild(tt));
+
+    const cells = tableClone.querySelectorAll("th, td");
+    cells.forEach(cell => {
+        let text = cell.innerText.replace(/\n/g, " ").trim();
+        text = text.replace(/🔥|⚡|✓|📋|💬|💡/g, "").trim(); 
+        cell.innerText = text;
+    });
+
+    const htmlTemplate = `
+        <html xmlns:o="urn:schemas-microsoft-com:office:office" 
+              xmlns:x="urn:schemas-microsoft-com:office:excel" 
+              xmlns="http://www.w3.org/TR/REC-html40"
+              dir="rtl">
+        <head>
+            <meta charset="UTF-8">
+            <style>
+                table { border-collapse: collapse; font-family: 'Segoe UI', sans-serif; }
+                th, td { border: 1px solid #dddddd; padding: 8px; text-align: center; }
+                th { background-color: #1a4332; color: white; font-weight: bold; font-size: 14px;}
+                td { font-size: 13px; }
+            </style>
+        </head>
+        <body>
+            ${tableClone.outerHTML}
+        </body>
+        </html>
+    `;
+
+    const blob = new Blob([htmlTemplate], { type: 'application/vnd.ms-excel' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    const dateStr = new Date().toLocaleDateString('en-CA'); 
+    
+    link.href = url;
+    link.download = `Leads_Report_${dateStr}.xls`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    
+    showToast("جاري تحميل ملف Excel... 📥");
+}
+
+
+// ==========================================
+// 3. وظائف الفلترة 
+// ==========================================
 document.addEventListener('DOMContentLoaded', function() {
     const table = document.querySelector('table');
     if (!table) return;
 
-    // Extract unique cities
     const rows = Array.from(document.querySelectorAll('tbody tr'));
     const cities = new Set();
     rows.forEach(row => {
-        const dateCell = row.cells[7];
-        if (dateCell) {
-            const leadId = row.cells[0].textContent.trim();
-            const lead = findLeadData(leadId);
-            if (lead && lead.city) cities.add(lead.city);
-        }
+        const cityCell = row.cells[3]; // Updated cell index due to new column
+        if (cityCell && cityCell.textContent !== '—') cities.add(cityCell.textContent.trim());
     });
 
-    // Populate city dropdown
     const citySelect = document.getElementById('cityFilter');
-    Array.from(cities).sort().forEach(city => {
-        const option = document.createElement('option');
-        option.value = city;
-        option.textContent = city;
-        citySelect.appendChild(option);
-    });
+    if(citySelect) {
+        Array.from(cities).sort().forEach(city => {
+            const option = document.createElement('option');
+            option.value = city; option.textContent = city;
+            citySelect.appendChild(option);
+        });
+    }
 
-    // Setup event listeners for filtering
-    ['cityFilter', 'registeredFilter', 'dateFromFilter', 'dateToFilter'].forEach(id => {
+    ['cityFilter', 'registeredFilter', 'contactedFilter', 'dateFromFilter', 'dateToFilter'].forEach(id => {
         const elem = document.getElementById(id);
         if (elem) elem.addEventListener('change', applyFilters);
     });
-
-    applyFilters();
 });
-
-function findLeadData(leadId) {
-    const leadsData = [
-        {% for lead in leads %}
-        {id: {{ lead.id }}, city: {{ lead.city | tojson }}, is_registered: {{ lead.is_registered | tojson }}},
-        {% endfor %}
-    ];
-    return leadsData.find(l => '#' + l.id === leadId);
-}
 
 function applyFilters() {
     const cityVal = document.getElementById('cityFilter').value;
     const regVal = document.getElementById('registeredFilter').value;
+    const contactVal = document.getElementById('contactedFilter').value;
     const dateFrom = document.getElementById('dateFromFilter').value;
     const dateTo = document.getElementById('dateToFilter').value;
 
@@ -166,17 +402,23 @@ function applyFilters() {
 
     rows.forEach(row => {
         const dateStr = row.cells[9].textContent.trim();
-        const leadId = row.cells[0].textContent.trim();
-        const lead = findLeadData(leadId);
-
-        if (!lead) return;
+        const cityStr = row.cells[3].textContent.trim();
+        const isRegStr = row.cells[4].textContent.trim();
+        const checkbox = row.cells[0].querySelector('input[type="checkbox"]');
+        const isContacted = checkbox ? checkbox.checked : false;
 
         let show = true;
 
-        if (cityVal && lead.city !== cityVal) show = false;
+        if (cityVal && cityStr !== cityVal) show = false;
+        
         if (regVal) {
-            const isReg = regVal === 'yes' ? lead.is_registered === 'yes' : lead.is_registered === 'no';
-            if (!isReg) show = false;
+            if (regVal === 'yes' && !isRegStr.includes('مسجل')) show = false;
+            if (regVal === 'no' && !isRegStr.includes('غير مسجل')) show = false;
+        }
+
+        if (contactVal) {
+            if (contactVal === 'yes' && !isContacted) show = false;
+            if (contactVal === 'no' && isContacted) show = false;
         }
 
         if (dateFrom) {
@@ -192,22 +434,17 @@ function applyFilters() {
         if (show) visibleCount++;
     });
 
-    updateCount(visibleCount);
+    const countSpan = document.getElementById('leadCount');
+    if(countSpan) countSpan.textContent = visibleCount + ' / ' + rows.length;
 }
 
 function clearFilters() {
     document.getElementById('cityFilter').value = '';
     document.getElementById('registeredFilter').value = '';
+    document.getElementById('contactedFilter').value = '';
     document.getElementById('dateFromFilter').value = '';
     document.getElementById('dateToFilter').value = '';
     applyFilters();
-}
-
-function updateCount(count) {
-    const total = document.querySelectorAll('tbody tr').length;
-    const metaDiv = document.querySelector('.meta');
-    const countSpan = metaDiv.querySelector('strong');
-    countSpan.textContent = count + ' / ' + total;
 }
 </script>
 

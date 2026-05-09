@@ -1,38 +1,35 @@
-from langchain_openai import ChatOpenAI, OpenAIEmbeddings
-from langchain_chroma import Chroma
-from dotenv import load_dotenv
+import warnings
+import logging
+import os
+import shutil
+import zipfile
+import csv
+import io
+from datetime import datetime
+from pathlib import Path
 
 import uvicorn
 from fastapi import FastAPI, UploadFile, File, Depends, HTTPException, status, Request, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, HTMLResponse, JSONResponse, RedirectResponse
-from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
-from chromadb.config import Settings
-
 from sqlalchemy.orm import Session
 from sqlalchemy import func
-import io
-from database import engine, SessionLocal, get_db
+from dotenv import load_dotenv
+
+# Import our modularized files
 import models
-
-from pydantic import BaseModel
-from datetime import datetime
-from typing import List, Tuple, Optional
-from pathlib import Path
-import asyncio
-import time
-import shutil
-import zipfile
-import secrets
-import hashlib
-import csv
-import warnings
-import logging
-import os
-
-
+from database import engine, SessionLocal, get_db
+from schemas import ChatRequest, LeadSubmitRequest, LeadUpdateRequest
+from auth import (
+    get_current_admin, get_dashboard_user, get_trackdashboard_user,
+    _hash_password, _make_session_token
+)
+from core_ai import (
+    reload_vector_store, get_chroma_stats, CHROMA_PATH, 
+    generate_response_stream,_compute_lead_status
+)
 # ---------------------------------------------------------------------------
 # Suppress noisy logs
 # ---------------------------------------------------------------------------
@@ -41,179 +38,10 @@ warnings.filterwarnings("ignore", message=".*telemetry.*")
 logging.getLogger("chromadb").setLevel(logging.ERROR)
 logging.getLogger("chromadb.telemetry").setLevel(logging.CRITICAL)
 
-
-# ---------------------------------------------------------------------------
-# Static branch data
-# ---------------------------------------------------------------------------
-GLOBAL_FACTS = """
-1. **الرياض:**
-   - حي الحمراء: https://maps.app.goo.gl/GyV2WBj9qdr19Gnw8
-   - حي الاندلس: https://maps.app.goo.gl/zYZSZdgyJnN3Ni3p7?g_st=awb
-   - حي ظهرة لبن: https://maps.app.goo.gl/YosPLMqJuDKPC3oM8
-
-2. **الدمام:**
-   - حي الزهور: https://maps.app.goo.gl/peEN6jUXJCBeoPsVA
-   - حي الشاطئ الغربي: https://maps.app.goo.gl/C1fMA4iDmKBQLzde9
-
-3. **خميس مشيط:**
-   - حي الظرفة: https://maps.app.goo.gl/mp5jKJDvZmCo3fN58
-   - حي الضيافة: https://maps.app.goo.gl/2bPMoWxnCezzBTRn7
-
-4. **المدينة المنورة:**
-   - حي الحرة الغربية: https://maps.app.goo.gl/UKXdWt55fL3VdJzR8
-
-5. **حفر الباطن:**
-   - حي المصيف: https://maps.app.goo.gl/2irsjbweCJT5axWJ8
-   - حي الواحه: https://maps.app.goo.gl/F1ji25q1GAxGU6Vd9
-
-6. **سكاكا الجوف:**
-   - حي العزيزية: https://maps.app.goo.gl/hK8Ye5R21ynr27tc7
-
-ملاحظة مهمة: لا يوجد أي فروع أخرى غير الفروع المدرجة أعلاه.
-
----
-
-1. **Riyadh:**
-* Al Hamra District: https://maps.app.goo.gl/GyV2WBj9qdr19Gnw8
-* Al Andalus District: https://maps.app.goo.gl/zYZSZdgyJnN3Ni3p7?g_st=awb
-* Dhahrat Laban District: https://maps.app.goo.gl/YosPLMqJuDKPC3oM8
-
-2. **Dammam:**
-* Az Zuhur District: https://maps.app.goo.gl/peEN6jUXJCBeoPsVA
-* Ash Shati Al Gharbi District: https://maps.app.goo.gl/C1fMA4iDmKBQLzde9
-
-3. **Khamis Mushait:**
-* Al Tharfah District: https://maps.app.goo.gl/mp5jKJDvZmCo3fN58
-* Al Diyafa District: https://maps.app.goo.gl/2bPMoWxnCezzBTRn7
-
-4. **Madinah:**
-* Al Harrah Al Gharbiyah District: https://maps.app.goo.gl/UKXdWt55fL3VdJzR8
-
-5. **Hafar Al-Batin:**
-* Al Masif District: https://maps.app.goo.gl/2irsjbweCJT5axWJ8
-* Al Wahah District: https://maps.app.goo.gl/F1ji25q1GAxGU6Vd9
-
-6. **Sakaka Al-Jouf:**
-* Al Aziziyah District: https://maps.app.goo.gl/hK8Ye5R21ynr27tc7
-
-Important Note: There are no other branches other than the branches listed above.
-"""
-
-load_dotenv()
-
-ADMIN_USER = os.getenv("ADMIN_USER")
-ADMIN_PASS = os.getenv("ADMIN_PASS")
-
-
-# ---------------------------------------------------------------------------
-# Background task: classify question category with GPT
-# ---------------------------------------------------------------------------
-async def classify_question_background(log_id: int, question: str):
-    db = SessionLocal()
-    try:
-        categories = db.query(models.QuestionCategory).all()
-        
-        # --- Step 1: Classify category ---
-        category = "other"
-        if categories:
-            categories_list = "\n".join([
-                f"- {c.name}: {c.description}" for c in categories
-            ])
-            cat_prompt = f"""
-You are a question classifier for a Saudi training institute chatbot.
-Classify the following question into one of these categories:
-
-{categories_list}
-- other: does not fit any category above
-
-Question: "{question}"
-
-Reply with ONLY the category name in Arabic exactly as written above, or "other".
-No explanation, no punctuation, just the category name ,dont take any greetings as a category.
-"""
-            cat_response = await llm.ainvoke(cat_prompt)
-            category = cat_response.content.strip()
-            valid_names = [c.name for c in categories] + ["other"]
-            if category not in valid_names:
-                category = "other"
-
-        # --- Step 2: Assign topic (smart clustering) ---
-        existing_topics = (
-            db.query(models.ChatLog.topic)
-            .filter(models.ChatLog.topic != None)
-            .distinct()
-            .all()
-        )
-        topics_list = [t[0] for t in existing_topics if t[0]]
-
-        if topics_list:
-            topics_str = "\n".join([f"- {t}" for t in topics_list])
-            topic_prompt = f"""
-You are a question topic classifier for a Saudi training institute chatbot.
-These are the existing topics:
-{topics_str}
-
-New question: "{question}"
-
-Rules:
-1. If this question is similar to an existing topic, return that EXACT topic name.
-2. If it's a new topic, create a short Arabic topic name (max 4 words).
-3. Return ONLY the topic name, nothing else.
-"""
-        else:
-            topic_prompt = f"""
-Create a short Arabic topic name (max 4 words) for this question:
-"{question}"
-
-Return ONLY the topic name, nothing else.
-"""
-        topic_response = await llm.ainvoke(topic_prompt)
-        topic = topic_response.content.strip()
-
-        # --- Save to DB ---
-        log = db.query(models.ChatLog).filter(models.ChatLog.id == log_id).first()
-        if log:
-            log.category = category
-            log.topic    = topic
-            db.commit()
-            print(f"--- [CLASSIFY] '{question[:30]}' → category:{category} topic:{topic} ---")
-
-    except Exception as e:
-        print(f"--- [ERROR] Classification failed: {e} ---")
-    finally:
-        db.close()
-# ---------------------------------------------------------------------------
-# DB table creation (runs on startup)
-# ---------------------------------------------------------------------------
-models.Base.metadata.create_all(bind=engine)
-
 BASE_DIR = Path(__file__).resolve().parent
-DATA_DIR = BASE_DIR / "data"
 TEMPLATES_DIR = BASE_DIR / "templates"
-
-CHROMA_PATH_ENV = os.getenv("CHROMA_PATH")
-
-if CHROMA_PATH_ENV:
-    CHROMA_PATH = Path(CHROMA_PATH_ENV)
-    if not os.path.exists(CHROMA_PATH) or (
-        os.path.isdir(CHROMA_PATH) and not any(CHROMA_PATH.iterdir())
-    ):
-        LOCAL_DATA_PATH = BASE_DIR / "data" / "chroma_db"
-        if os.path.exists(LOCAL_DATA_PATH) and any(LOCAL_DATA_PATH.iterdir()):
-            CHROMA_PATH = LOCAL_DATA_PATH
-            print(f"--- [CHROMA INFO] Persistent volume empty, using local data at: {CHROMA_PATH} ---")
-        else:
-            print(f"--- [CHROMA INFO] Using Environment Path at: {CHROMA_PATH} (will be created if needed) ---")
-    else:
-        print(f"--- [CHROMA INFO] Using Environment Path at: {CHROMA_PATH} ---")
-else:
-    CHROMA_PATH = BASE_DIR / "data" / "chroma_db"
-    print(f"--- [CHROMA INFO] Using Local Directory at: {CHROMA_PATH} ---")
-
-COLLECTION_NAME = "example_collection"
 MAINTENANCE_MODE = False
 
-security = HTTPBasic()
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
 app = FastAPI(title="RAG API Final System")
@@ -227,255 +55,6 @@ app.add_middleware(
 
 app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
 
-print("--- [INFO] Loading models... ---")
-embeddings_model = OpenAIEmbeddings(model="text-embedding-3-small")
-llm = ChatOpenAI(temperature=0.1, model="gpt-4o-mini")
-vector_store = None
-#---------------------------------------------------------------------------
-#
-#---------------------------------------------------------------------------
-import json
-
-async def detect_intent_background(session_id: str, message: str):
-    db = SessionLocal()
-    try:
-        # 1. التحقق المبكر لتوفير التكلفة
-        lead = db.query(models.Lead).filter(models.Lead.session_id == session_id).first()
-        if not lead:
-            return  
-            
-        # إذا سأل عن الاثنين مسبقاً، لا داعي للاتصال بـ GPT نهائياً
-        if lead.asked_about_price and lead.asked_about_registration:
-            return
-
-        # 2. جلب **جميع أسئلة العميل فقط** في هذه الجلسة (بدون ردود البوت)
-        all_user_logs = (
-            db.query(models.ChatLog.user_query)
-            .filter(models.ChatLog.session_id == session_id)
-            .order_by(models.ChatLog.timestamp.asc())
-            .all()
-        )
-        
-        if not all_user_logs:
-            return
-
-        # تجميع أسئلة العميل في نص واحد
-        user_questions_text = "\n".join([f"- {log[0]}" for log in all_user_logs if log[0]])
-
-        # 3. توجيه النموذج لتحليل القائمة
-        intent_prompt = f"""
-You are a strict sales intent classifier for a Saudi training institute.
-Below are ALL the messages sent by a single user in a chat session.
-
-User Messages:
-{user_questions_text}
-
-RULES:
-- Be conservative. Only mark True if the evidence is CLEAR and EXPLICIT.
-- When in doubt → false.
-- Ignore greetings, general questions about courses/content, and location questions.
-
-[CONCEPT 1]: PRICE INTENT
-True ONLY if the user explicitly asks about cost, price, fees, payment, or discounts.
-True examples: "بكم"، "كم التكلفة"، "عندكم خصم"، "كم ادفع"، "الرسوم كم"، "how much"، "price"
-False examples: "وين الفرع"، "ما هي الدورات"، "متى يبدأ"، "كم مدة الدورة"، "ما تخصصاتكم"
-
-[CONCEPT 2]: REGISTRATION INTENT
-True ONLY if the user explicitly asks about registering, applying, joining, or enrollment steps.
-True examples: "كيف اسجل"، "وش الشروط"، "ابي انضم"، "رابط التسجيل"، "كيف القبول"، "how to apply"
-False examples: "عندكم دبلوم"، "ما هي الدورات"، "كم مدة الدورة"
-
-Respond ONLY with valid JSON, no explanation:
-{{
-    "price_intent": true or false,
-    "registration_intent": true or false
-}}
-"""
-        # 4. إرسال الطلب للنموذج
-        intent_response = await llm.ainvoke(intent_prompt)
-        response_text = intent_response.content.strip()
-        
-        # تنظيف الرد
-        if response_text.startswith("```json"):
-            response_text = response_text[7:-3].strip()
-        elif response_text.startswith("```"):
-            response_text = response_text[3:-3].strip()
-            
-        # 5. استخراج البيانات (Parsing)
-        parsed_intent = json.loads(response_text)
-        touched_price = parsed_intent.get("price_intent", False)
-        touched_reg = parsed_intent.get("registration_intent", False)
-        
-
-        # 6. تحديث قاعدة البيانات إذا وجدنا نية جديدة
-        updated = False
-        if touched_price and not lead.asked_about_price:
-            lead.asked_about_price = True
-            updated = True
-        if touched_reg and not lead.asked_about_registration:
-            lead.asked_about_registration = True
-            updated = True
-            
-        if updated:
-            lead.lead_status = _compute_lead_status(
-                lead.question_count, lead.asked_about_price, lead.asked_about_registration
-            )
-            db.commit()
-
-    except json.JSONDecodeError as e:
-        print(f"--- [ERROR] Intent parsing failed (Invalid JSON): {e} ---")
-    except Exception as e:
-        print(f"--- [ERROR] Intent detection failed: {e} ---")
-    finally:
-        db.close()
-async def generate_session_summary_background(session_id: str):
-    db = SessionLocal()
-    try:
-        # التأكد من وجود العميل أولاً
-        lead = db.query(models.Lead).filter(models.Lead.session_id == session_id).first()
-        if not lead:
-            return  
-            
-        # جلب جميع أسئلة العميل في الجلسة
-        all_user_logs = (
-            db.query(models.ChatLog.user_query)
-            .filter(models.ChatLog.session_id == session_id)
-            .order_by(models.ChatLog.timestamp.asc())
-            .all()
-        )
-        
-        if not all_user_logs:
-            return
-
-        # تجميع الأسئلة في نص واحد
-        user_questions_text = "\n".join([f"- {log[0]}" for log in all_user_logs if log[0]])
-
-        # توجيه النموذج لعمل ملخص فقط وبدون JSON
-        summary_prompt = f"""
-You are an expert sales analyst for a Saudi Institute. 
-Analyze the following user questions from a single session and write a brief summary.
-
-User Questions:
-{user_questions_text}
-
-Task: Create a very short Arabic summary of what the user is looking for (maximum 10 words).
-Example: "اهتمام بدبلوم القانون وفروع الرياض"
-Example: "استفسار عن دبلوم البرمجة وطريقة التسجيل"
-
-Respond ONLY with the Arabic summary text, nothing else. No formatting, no markdown.
-"""
-        # إرسال الطلب
-        summary_response = await llm.ainvoke(summary_prompt)
-        summary_text = summary_response.content.strip()
-
-        # تحديث قاعدة البيانات
-        lead.session_summary = summary_text
-        db.commit()
-        
-        print(f"--- [DEBUG] SESSION SUMMARY UPDATED: {summary_text} ---")
-
-    except Exception as e:
-        print(f"--- [ERROR] Summary generation failed: {e} ---")
-    finally:
-        db.close()
-# ---------------------------------------------------------------------------
-# Vector store helpers
-# ---------------------------------------------------------------------------
-def load_vector_store():
-    global vector_store
-    if os.path.exists(CHROMA_PATH):
-        vector_store = Chroma(
-            collection_name=COLLECTION_NAME,
-            embedding_function=embeddings_model,
-            persist_directory=str(CHROMA_PATH),
-            client_settings=Settings(anonymized_telemetry=False),
-        )
-        print("--- [INFO] Vector store loaded. ---")
-    else:
-        print("--- [WARNING] ChromaDB folder not found. Please upload DB via admin panel. ---")
-
-
-load_vector_store()
-
-
-def reload_vector_store():
-    print("--- [INFO] Reloading Vector Store... ---")
-    load_vector_store()
-
-
-def get_chroma_stats():
-    if vector_store:
-        try:
-            count = vector_store._collection.count()
-            return {"status": "Connected", "total_documents": count}
-        except:
-            pass
-    return {"status": "Not Loaded", "total_documents": 0}
-
-
-# ---------------------------------------------------------------------------
-# Admin auth (existing HTTPBasic for /admin/* routes)
-# ---------------------------------------------------------------------------
-def get_current_admin(credentials: HTTPBasicCredentials = Depends(security)):
-    correct_username = secrets.compare_digest(credentials.username, ADMIN_USER)
-    correct_password = secrets.compare_digest(credentials.password, ADMIN_PASS)
-    if not (correct_username and correct_password):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid credentials",
-            headers={"WWW-Authenticate": "Basic"},
-        )
-    return credentials.username
-
-
-# ---------------------------------------------------------------------------
-# Dashboard session auth helpers
-# Uses a simple signed cookie: "username|role" hashed with a server secret
-# ---------------------------------------------------------------------------
-DASHBOARD_SECRET = os.getenv("DASHBOARD_SECRET", "change-me-in-production")
-
-
-def _hash_password(password: str) -> str:
-    return hashlib.sha256(password.encode()).hexdigest()
-
-
-def _make_session_token(username: str, role: str) -> str:
-    payload = f"{username}|{role}"
-    sig = hashlib.sha256(f"{payload}{DASHBOARD_SECRET}".encode()).hexdigest()
-    return f"{payload}|{sig}"
-
-
-def _verify_session_token(token: str):
-    """Returns (username, role) or raises HTTPException."""
-    try:
-        parts = token.split("|")
-        username, role, sig = parts[0], parts[1], parts[2]
-        expected = hashlib.sha256(f"{username}|{role}{DASHBOARD_SECRET}".encode()).hexdigest()
-        if not secrets.compare_digest(sig, expected):
-            raise ValueError("bad signature")
-        return username, role
-    except Exception:
-        raise HTTPException(status_code=401, detail="Session expired. Please log in again.")
-
-
-def get_dashboard_user(request: Request):
-    token = request.cookies.get("dashboard_session")
-    if not token:
-        raise HTTPException(status_code=302, headers={"Location": "/dashboard/login"})
-    return _verify_session_token(token)
-
-
-def get_trackdashboard_user(request: Request):
-    """Only admin role can access trackdashboard."""
-    token = request.cookies.get("dashboard_session")
-    if not token:
-        raise HTTPException(status_code=302, headers={"Location": "/dashboard/login"})
-    username, role = _verify_session_token(token)
-    if role != "admin":
-        raise HTTPException(status_code=403, detail="Admin access required.")
-    return username, role
-
-
 # ---------------------------------------------------------------------------
 # Lead scoring helper
 # ---------------------------------------------------------------------------
@@ -488,203 +67,9 @@ def _week_label(year: int, week_num: int) -> str:
     week_of_month = (start.day - 1) // 7
     return f"الأسبوع {_WEEK_ORDINALS_AR[week_of_month]} من {_MONTHS_AR[start.month - 1]}"
 
-def _compute_lead_status(question_count: int, asked_price: bool, asked_reg: bool) -> str:
-    if asked_price or asked_reg:
-        return "hot"
-    if question_count >= 5:
-        return "warm"
-    return "cold"
 
 
-# ---------------------------------------------------------------------------
-# Pydantic models
-# ---------------------------------------------------------------------------
-class ChatRequest(BaseModel):
-    message: str
-    history: Optional[List[Tuple[str, str]]] = []
-    session_id: str = "unknown"
 
-
-class LeadSubmitRequest(BaseModel):
-    session_id: str
-    phone_number: str
-    question_count: int = 0
-    asked_about_price: bool = False
-    is_registered: Optional[str] = None
-    city: Optional[str] = None
-
-
-class LeadUpdateRequest(BaseModel):
-    admin_note: Optional[str] = None
-    lead_status: Optional[str] = None
-
-
-# ---------------------------------------------------------------------------
-# RAG logic (unchanged)
-# ---------------------------------------------------------------------------
-def prepare_rag_context(message: str, history: List[Tuple[str, str]]):
-    if not vector_store:
-        return None, message, [], history
-
-    MEMORY_WINDOW_SIZE = 3
-    SIMILARITY_THRESHOLD = 1.5
-    TOP_K_RESULTS = 5
-
-    limited_history = history[-MEMORY_WINDOW_SIZE:]
-
-    formatted_history_text = ""
-    if limited_history:
-        formatted_history_text = "\n".join(
-            [f"User: {u}\nAssistant: {a}" for u, a in limited_history]
-        )
-
-    search_query = message
-
-    if history:
-        rephrase_prompt = f"""
-You are an expert at understanding conversation context.
-You have a previous conversation and a new user message.
-
-Conversation history:
-{formatted_history_text}
-
-Latest user message: {message}
-
-Task:
-- If the user reply is an answer to an assistant question, infer the next logical step and use that as the search query.
-- If it is a new question, rephrase it clearly.
-- IMPORTANT: Keep the search query in the SAME language as the user message.
-
-Output only the improved search query with no preamble:
-"""
-        try:
-            search_query = llm.invoke(rephrase_prompt).content.strip()
-            print(f"--- [DEBUG] Smart Search Query: {search_query} ---")
-        except Exception as e:
-            print(f"--- [ERROR] Rephrase failed: {e} ---")
-            search_query = message
-
-    results = vector_store.similarity_search_with_score(search_query, k=TOP_K_RESULTS)
-    good_docs = [doc.page_content for doc, score in results if score < SIMILARITY_THRESHOLD]
-    knowledge = "\n\n".join(good_docs)
-    print(f"--- [DEBUG] Found {len(good_docs)} relevant documents ---")
-    
-
-    rag_prompt = f"""
-    You are a smart assistant for the Saudi Specialized Higher Institute for Training.
-    You answer questions from website visitors.
-
-    === GLOBAL FACTS ===
-    {GLOBAL_FACTS}
-
-    === RETRIEVED CONTEXT ===
-    {knowledge}
-
-    === CONVERSATION HISTORY ===
-    {formatted_history_text}
-
-
-    === GUIDELINES ===
-    1. CRITICAL: Detect the language of the User message: "{message}". 
-    You MUST reply in that exact language — if English, reply in English only.
-    If Arabic, reply in Arabic only. Never mix languages.
-    2. If asked about a city not in the list, apologize and mention available branches.
-    3. For pricing or registration questions, share: unified number 920012673 and WhatsApp 0562510671.
-    4. Be direct and concise.
-
-    User: {message}
-    Assistant:
-    """
-
-
-    return rag_prompt, search_query, good_docs, limited_history
-
-
-async def generate_response_stream(
-    message: str, history: List[Tuple[str, str]], session_id: str, db: Session
-):
-    start_time = time.time()
-
-    rag_prompt, search_query, docs, _ = prepare_rag_context(message, history)
-
-    full_answer = ""
-    first_token_time = None
-    is_unanswered = False
-
-    if not rag_prompt:
-        err_msg = "Sorry, the knowledge base is not ready yet."
-        yield err_msg
-        full_answer = err_msg
-        response_time_to_log = time.time() - start_time
-    else:
-        try:
-            async for chunk in llm.astream(rag_prompt):
-                if chunk.content:
-                    if first_token_time is None:
-                        first_token_time = time.time() - start_time
-                    full_answer += chunk.content
-                    yield chunk.content
-
-            response_time_to_log = (
-                first_token_time if first_token_time is not None else (time.time() - start_time)
-            )
-
-            # Detect unanswered questions from bot response
-            unanswered_phrases = [
-                "عذراً", "عذرا", "لا أملك", "لا يوجد لدي",
-                "لا تتوفر", "لا أعرف", "غير متاح", "لا يوجد",
-                "sorry", "i don't have", "i do not have"
-            ]
-            is_unanswered = any(
-                phrase in full_answer.lower()
-                for phrase in unanswered_phrases
-            )
-
-        except Exception as e:
-            yield f"Error: {str(e)}"
-            response_time_to_log = time.time() - start_time
-
-    # Update question count only — no intent analysis here
-    try:
-        lead = db.query(models.Lead).filter(
-            models.Lead.session_id == session_id
-        ).first()
-        if lead:
-            lead.question_count += 1
-            lead.lead_status = _compute_lead_status(
-                lead.question_count,
-                lead.asked_about_price,
-                lead.asked_about_registration
-            )
-            db.commit()
-    except Exception as e:
-        print(f"--- [ERROR] Lead update failed: {e} ---")
-
-    # Save chat log
-    try:
-        new_log = models.ChatLog(
-            session_id=session_id,
-            user_query=message,
-            bot_answer=full_answer,
-            response_time=response_time_to_log,
-            timestamp=datetime.now(),
-            is_unanswered=is_unanswered,
-        )
-        db.add(new_log)
-        db.commit()
-        db.refresh(new_log)
-        print(f"RAG_EVAL_START", flush=True)
-        print(f"RAG_EVAL | Question: {message}", flush=True)
-        print(f"RAG_EVAL | Context: {docs}", flush=True)
-        print(f"RAG_EVAL | Answer: {full_answer}", flush=True)
-        print(f"RAG_EVAL_END", flush=True)
-        print(f"--- [LOG] Response Time Saved: {response_time_to_log:.2f}s ---")
-        asyncio.create_task(classify_question_background(new_log.id, message))
-        asyncio.create_task(detect_intent_background(session_id, message))
-        asyncio.create_task(generate_session_summary_background(session_id))
-
-    except Exception as e:
-        print(f"--- [ERROR] DB Save failed: {e} ---")
 #===================================================
 # to get all unanswered questions for the current week
 #ُ=====================================================
@@ -944,6 +329,7 @@ def delete_chat_log(
     db: Session = Depends(get_db),
     username: str = Depends(get_current_admin),
 ):
+    
     log = db.query(models.ChatLog).filter(models.ChatLog.id == log_id).first()
     if not log:
         raise HTTPException(status_code=404, detail="Log not found")
@@ -1321,14 +707,18 @@ async def reject_lead(lead_id: int, request: Request, db: Session = Depends(get_
 async def update_lead_note(
     lead_id: int, payload: LeadUpdateRequest, request: Request, db: Session = Depends(get_db)
 ):
-    get_trackdashboard_user(request)
+    get_dashboard_user(request) 
     lead = db.query(models.Lead).filter(models.Lead.id == lead_id).first()
     if not lead:
         raise HTTPException(status_code=404, detail="Lead not found")
+
     if payload.admin_note is not None:
         lead.admin_note = payload.admin_note
     if payload.lead_status is not None:
         lead.lead_status = payload.lead_status
+    if payload.is_contacted is not None:
+        lead.is_contacted = payload.is_contacted
+
     db.commit()
     return {"status": "updated"}
 
@@ -1498,6 +888,7 @@ async def run_migrations():
         ("leads",      "is_registered", "VARCHAR"),
         ("leads",      "city", "VARCHAR"),
         ("leads",      "question_count", "INTEGER"),
+        ("leads", "is_contacted", "BOOLEAN DEFAULT 0"),
 
         ("uploaded_reports", "request_id",    "INTEGER"),
         ("uploaded_reports", "report_period", "VARCHAR"),
@@ -1764,6 +1155,44 @@ async def export_leads_html(
             "Content-Disposition": f"attachment; filename=leads_week{week}_{year}.html"
         },
     )
+
+#--------------------------------------------------------------------------
+# View leads report page in browser (sales can also see it online without downloading)
+#--------------------------------------------------------------------------
+@app.get("/dashboard/leads-report", response_class=HTMLResponse)
+async def view_leads_report_page(
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    get_dashboard_user(request)
+    from datetime import datetime
+    from collections import defaultdict
+
+
+    leads = db.query(models.Lead).order_by(models.Lead.timestamp.desc()).all()
+    session_ids = [lead.session_id for lead in leads]
+
+
+    questions_map = defaultdict(list)
+    if session_ids:
+        logs = (
+            db.query(models.ChatLog.session_id, models.ChatLog.user_query)
+            .filter(models.ChatLog.session_id.in_(session_ids))
+            .order_by(models.ChatLog.timestamp.asc())
+            .all()
+        )
+        for log in logs:
+            if log.user_query:
+                questions_map[log.session_id].append(log.user_query)
+
+    context = {
+        "request": request,
+        "leads": leads,
+        "questions_map": questions_map, 
+        "generated_at": datetime.now(),
+    }
+
+    return templates.TemplateResponse("leads_report.html", context)
 # ---------------------------------------------------------------------------
 # Upload HTML report from trackdashboard
 # ---------------------------------------------------------------------------

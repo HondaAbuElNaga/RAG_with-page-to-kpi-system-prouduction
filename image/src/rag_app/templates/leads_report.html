@@ -110,6 +110,76 @@
         
         /* Toast Message */
         #toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: #1a4332; color: white; padding: 12px 24px; border-radius: 8px; font-weight: bold; font-size: 13px; opacity: 0; transition: opacity 0.3s; pointer-events: none; z-index: 1000; box-shadow: 0 5px 15px rgba(0,0,0,0.2); }
+
+        /* Custom Confirm Modal */
+        .custom-confirm-overlay {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.5);
+            z-index: 2000;
+            align-items: center;
+            justify-content: center;
+            backdrop-filter: blur(2px);
+        }
+        .custom-confirm-overlay.open {
+            display: flex;
+        }
+        .custom-confirm-box {
+            background: white;
+            border-radius: 15px;
+            padding: 30px;
+            width: 90%;
+            max-width: 400px;
+            text-align: center;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.15);
+            animation: popIn 0.3s ease;
+        }
+        @keyframes popIn {
+            from { transform: scale(0.9); opacity: 0; }
+            to { transform: scale(1); opacity: 1; }
+        }
+        .custom-confirm-box h3 {
+            margin-top: 0;
+            color: #1a4332;
+            font-size: 20px;
+            margin-bottom: 10px;
+        }
+        .custom-confirm-box p {
+            color: #64748b;
+            font-size: 15px;
+            margin-bottom: 25px;
+            line-height: 1.5;
+        }
+        .confirm-btn-group {
+            display: flex;
+            gap: 15px;
+            justify-content: center;
+        }
+        .btn-confirm-yes {
+            background: #1a4332;
+            color: white;
+            border: none;
+            padding: 10px 25px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: bold;
+            font-size: 14px;
+            flex: 1;
+        }
+        .btn-confirm-yes:hover { background: #0f2818; }
+        .btn-confirm-no {
+            background: #f1f5f9;
+            color: #475569;
+            border: none;
+            padding: 10px 25px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: bold;
+            font-size: 14px;
+            flex: 1;
+        }
+        .btn-confirm-no:hover { background: #e2e8f0; color: #0f172a; }
     </style>
 </head>
 <body>
@@ -168,18 +238,19 @@
                 </div>
                 <button class="filter-btn" onclick="clearFilters()">مسح الفلاتر</button>
                 <button class="filter-btn" style="background: #15803d;" onclick="exportToExcel()">📊 تصدير Excel</button>
+                <button class="filter-btn" style="background: #0284c7;" onclick="markAllAsContacted()">✅ تعليم الكل كـ "تم التواصل"</button>
             </div>
 
             <table>
                 <thead>
                     <tr>
-                        <th style="width:50px;">تم التواصل؟</th>
+                        <th style="width:50px;">تم التواصل</th>
                         <th>رقم الموبايل</th>
                         <th>سجل المحادثة</th>
                         <th>المدينة</th>
-                        <th>مسجل لدينا؟</th>
-                        <th>سعر؟</th>
-                        <th>تسجيل؟</th>
+                        <th>مسجل لدينا</th>
+                        <th>سعر</th>
+                        <th>تسجيل</th>
                         <th>الحالة</th>
                         <th style="width:250px;">الملاحظات (قابلة للتعديل)</th>
                         <th>التاريخ</th>
@@ -189,7 +260,7 @@
                     {% for lead in leads %}
                     <tr>
                         <td style="text-align: center;">
-                            <input type="checkbox" class="contact-checkbox" 
+                            <input type="checkbox" class="contact-checkbox" data-id="{{ lead.id }}"
                                    onchange="updateLead({{ lead.id }}, 'is_contacted', this.checked)"
                                    {% if lead.is_contacted %}checked{% endif %} title="علم هنا إذا تم التواصل">
                         </td>
@@ -250,9 +321,21 @@
     </main>
 </div>
 
+<div class="custom-confirm-overlay" id="customConfirmModal">
+    <div class="custom-confirm-box">
+        <div style="font-size: 40px; margin-bottom: 10px;">❓</div>
+        <h3>تأكيد الإجراء</h3>
+        <p id="customConfirmMessage"></p>
+        <div class="confirm-btn-group">
+            <button id="customConfirmOkBtn" class="btn-confirm-yes">نعم، متأكد</button>
+            <button id="customConfirmCancelBtn" class="btn-confirm-no">إلغاء</button>
+        </div>
+    </div>
+</div>
+
 <script>
 // ==========================================
-// 1. وظائف النسخ والواتساب والحفظ 
+// 1. Copy, WhatsApp, and Save functions
 // ==========================================
 
 function showToast(msg, isError = false) {
@@ -302,7 +385,7 @@ async function updateLead(leadId, field, value) {
 }
 
 // ==========================================
-// 2. وظيفة التصدير لـ Excel (تدعم الـ RTL وتتجاهل الـ Popups)
+// 2. Export to Excel function (supports RTL and ignores Popups)
 // ==========================================
 function exportToExcel() {
     const table = document.querySelector("table");
@@ -310,11 +393,11 @@ function exportToExcel() {
 
     const tableClone = table.cloneNode(true);
     
-    // مسح الصفوف المخفية من الفلتر
+    // Remove hidden rows from the filter
     const hiddenRows = tableClone.querySelectorAll("tr.hidden");
     hiddenRows.forEach(row => row.parentNode.removeChild(row));
 
-    // إزالة صناديق الـ Tooltip عشان متبوظش الإكسيل
+    // Remove Tooltip boxes so they don't break the Excel file
     const tooltips = tableClone.querySelectorAll(".tooltip-box");
     tooltips.forEach(tt => tt.parentNode.removeChild(tt));
 
@@ -360,9 +443,8 @@ function exportToExcel() {
     showToast("جاري تحميل ملف Excel... 📥");
 }
 
-
 // ==========================================
-// 3. وظائف الفلترة 
+// 3. Filter functions 
 // ==========================================
 document.addEventListener('DOMContentLoaded', function() {
     const table = document.querySelector('table');
@@ -371,7 +453,7 @@ document.addEventListener('DOMContentLoaded', function() {
     const rows = Array.from(document.querySelectorAll('tbody tr'));
     const cities = new Set();
     rows.forEach(row => {
-        const cityCell = row.cells[3]; // Updated cell index due to new column
+        const cityCell = row.cells[3];
         if (cityCell && cityCell.textContent !== '—') cities.add(cityCell.textContent.trim());
     });
 
@@ -412,8 +494,8 @@ function applyFilters() {
         if (cityVal && cityStr !== cityVal) show = false;
         
         if (regVal) {
-            if (regVal === 'yes' && !isRegStr.includes('مسجل')) show = false;
-            if (regVal === 'no' && !isRegStr.includes('غير مسجل')) show = false;
+            if (regVal === 'yes' && isRegStr !== 'مسجل') show = false;
+            if (regVal === 'no' && isRegStr !== 'غير مسجل') show = false;
         }
 
         if (contactVal) {
@@ -445,6 +527,89 @@ function clearFilters() {
     document.getElementById('dateFromFilter').value = '';
     document.getElementById('dateToFilter').value = '';
     applyFilters();
+}
+
+// ==========================================
+// 4. Custom Confirm Modal Logic
+// ==========================================
+function showCustomConfirm(message, onConfirmCallback) {
+    const modal = document.getElementById('customConfirmModal');
+    const msgEl = document.getElementById('customConfirmMessage');
+    const okBtn = document.getElementById('customConfirmOkBtn');
+    const cancelBtn = document.getElementById('customConfirmCancelBtn');
+
+    msgEl.textContent = message;
+    modal.classList.add('open');
+
+    // Remove any previous events to avoid duplication
+    okBtn.onclick = null;
+    cancelBtn.onclick = null;
+
+    okBtn.onclick = function() {
+        modal.classList.remove('open');
+        if (onConfirmCallback) onConfirmCallback();
+    };
+
+    cancelBtn.onclick = function() {
+        modal.classList.remove('open');
+    };
+}
+
+// ==========================================
+// 5. Function to mark all as "Contacted"
+// ==========================================
+function markAllAsContacted() {
+    // 1. Get all visible rows in the current filter
+    const visibleRows = document.querySelectorAll('tbody tr:not(.hidden)');
+    
+    // 2. Collect all unchecked checkboxes
+    const uncheckedBoxes = [];
+    visibleRows.forEach(row => {
+        const cb = row.querySelector('.contact-checkbox');
+        if (cb && !cb.checked) {
+            uncheckedBoxes.push(cb);
+        }
+    });
+
+    if (uncheckedBoxes.length === 0) {
+        showToast('جميع العملاء في الفلتر الحالي تم التواصل معهم بالفعل 💡');
+        return;
+    }
+
+    // 3. Call the new confirm message instead of the old one
+    showCustomConfirm(`هل أنت متأكد من تعليم عدد (${uncheckedBoxes.length}) عميل كـ "تم التواصل"؟`, async function() {
+        
+        showToast('جاري التحديث... ⏳');
+        let successCount = 0;
+        
+        const updatePromises = uncheckedBoxes.map(async (cb) => {
+            const leadId = cb.getAttribute('data-id');
+            try {
+                const res = await fetch(`/trackdashboard/leads/${leadId}/note`, {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ is_contacted: true })
+                });
+                
+                if (res.ok) {
+                    cb.checked = true; // Check the Checkbox immediately
+                    successCount++;
+                }
+            } catch (e) {
+                console.error('Error updating lead', leadId, e);
+            }
+        });
+
+        // Wait for all requests to finish
+        await Promise.all(updatePromises);
+
+        // 4. Show the final result
+        if (successCount === uncheckedBoxes.length) {
+            showToast(`تم تحديث ${successCount} عميل بنجاح ✓`);
+        } else {
+            showToast(`تم تحديث ${successCount} فقط من أصل ${uncheckedBoxes.length} ✕`, true);
+        }
+    });
 }
 </script>
 

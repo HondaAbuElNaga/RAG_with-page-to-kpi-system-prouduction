@@ -238,7 +238,9 @@
                 </div>
                 <button class="filter-btn" onclick="clearFilters()">مسح الفلاتر</button>
                 <button class="filter-btn" style="background: #15803d;" onclick="exportToExcel()">📊 تصدير Excel</button>
-                <button class="filter-btn" style="background: #0284c7;" onclick="markAllAsContacted()">✅ تعليم الكل كـ "تم التواصل"</button>
+                <button class="filter-btn" style="background: #0284c7;" onclick="bulkUpdateContacted(true)">✅ تم التواصل للكل</button>
+<button class="filter-btn" style="background: #922b21;" onclick="bulkUpdateContacted(false)">❌ إلغاء التحديد للكل</button>
+
             </div>
 
             <table>
@@ -320,11 +322,11 @@
         </div>
     </main>
 </div>
-
+// Custom Confirm Modal for safe bulk actions like "Mark All as Contacted"
 <div class="custom-confirm-overlay" id="customConfirmModal">
     <div class="custom-confirm-box">
-        <div style="font-size: 40px; margin-bottom: 10px;">❓</div>
-        <h3>تأكيد الإجراء</h3>
+        <div id="confirmEmoji" style="font-size: 40px; margin-bottom: 10px;">❓</div>
+        <h3 id="confirmTitle">تأكيد الإجراء</h3>
         <p id="customConfirmMessage"></p>
         <div class="confirm-btn-group">
             <button id="customConfirmOkBtn" class="btn-confirm-yes">نعم، متأكد</button>
@@ -332,7 +334,6 @@
         </div>
     </div>
 </div>
-
 <script>
 // ==========================================
 // 1. Copy, WhatsApp, and Save functions
@@ -530,86 +531,91 @@ function clearFilters() {
 }
 
 // ==========================================
-// 4. Custom Confirm Modal Logic
+// وظيفة التأكيد الموحدة (Custom Modal)
 // ==========================================
-function showCustomConfirm(message, onConfirmCallback) {
-    const modal = document.getElementById('customConfirmModal');
-    const msgEl = document.getElementById('customConfirmMessage');
-    const okBtn = document.getElementById('customConfirmOkBtn');
-    const cancelBtn = document.getElementById('customConfirmCancelBtn');
+function askConfirm(message) {
+    return new Promise((resolve) => {
+        const modal = document.getElementById('customConfirmModal');
+        const msgEl = document.getElementById('customConfirmMessage');
+        const okBtn = document.getElementById('customConfirmOkBtn');
+        const cancelBtn = document.getElementById('customConfirmCancelBtn');
 
-    msgEl.textContent = message;
-    modal.classList.add('open');
+        msgEl.textContent = message;
+        modal.classList.add('open');
 
-    // Remove any previous events to avoid duplication
-    okBtn.onclick = null;
-    cancelBtn.onclick = null;
+        okBtn.onclick = () => {
+            modal.classList.remove('open');
+            resolve(true);
+        };
 
-    okBtn.onclick = function() {
-        modal.classList.remove('open');
-        if (onConfirmCallback) onConfirmCallback();
-    };
-
-    cancelBtn.onclick = function() {
-        modal.classList.remove('open');
-    };
+        cancelBtn.onclick = () => {
+            modal.classList.remove('open');
+            resolve(false);
+        };
+    });
 }
 
 // ==========================================
-// 5. Function to mark all as "Contacted"
+// دالة التحديث الجماعي (تم التواصل / إلغاء التحديد)
 // ==========================================
-function markAllAsContacted() {
-    // 1. Get all visible rows in the current filter
+async function bulkUpdateContacted(status) {
+    // 1. نجيب الصفوف الظاهرة في الفلتر حالياً
     const visibleRows = document.querySelectorAll('tbody tr:not(.hidden)');
-    
-    // 2. Collect all unchecked checkboxes
-    const uncheckedBoxes = [];
+    const checkboxes = [];
+
     visibleRows.forEach(row => {
         const cb = row.querySelector('.contact-checkbox');
-        if (cb && !cb.checked) {
-            uncheckedBoxes.push(cb);
+        // لو بنعلم "تم": ناخد اللي مش متعلم عليهم. لو بنلغي: ناخد اللي متعلم عليهم.
+        if (cb && cb.checked !== status) {
+            checkboxes.push(cb);
         }
     });
 
-    if (uncheckedBoxes.length === 0) {
-        showToast('جميع العملاء في الفلتر الحالي تم التواصل معهم بالفعل 💡');
+    if (checkboxes.length === 0) {
+        showToast('لا يوجد تغييرات مطلوبة على الفلتر الحالي 💡');
         return;
     }
 
-    // 3. Call the new confirm message instead of the old one
-    showCustomConfirm(`هل أنت متأكد من تعليم عدد (${uncheckedBoxes.length}) عميل كـ "تم التواصل"؟`, async function() {
-        
-        showToast('جاري التحديث... ⏳');
-        let successCount = 0;
-        
-        const updatePromises = uncheckedBoxes.map(async (cb) => {
-            const leadId = cb.getAttribute('data-id');
-            try {
-                const res = await fetch(`/trackdashboard/leads/${leadId}/note`, {
-                    method: 'PATCH',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ is_contacted: true })
-                });
-                
-                if (res.ok) {
-                    cb.checked = true; // Check the Checkbox immediately
-                    successCount++;
-                }
-            } catch (e) {
-                console.error('Error updating lead', leadId, e);
+    const actionText = status ? "تحديد كـ تم التواصل" : "إلغاء تحديد التواصل";
+    const emoji = status ? "✅" : "❌";
+    
+    // نغير الإيموجي والعنوان في المودال حسب الحالة
+    document.getElementById('confirmEmoji').textContent = emoji;
+    document.getElementById('confirmTitle').textContent = status ? "تأكيد التواصل" : "تأكيد الإلغاء";
+
+    // نطلب التأكيد من المودال الشيك
+    const confirmed = await askConfirm(`هل أنت متأكد من ${actionText} لـ (${checkboxes.length}) عميل؟`);
+    
+    if (!confirmed) return;
+
+    showToast('جاري التحديث... ⏳');
+    let successCount = 0;
+
+    const updatePromises = checkboxes.map(async (cb) => {
+        const leadId = cb.getAttribute('data-id');
+        try {
+            const res = await fetch(`/trackdashboard/leads/${leadId}/note`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ is_contacted: status })
+            });
+            
+            if (res.ok) {
+                cb.checked = status; 
+                successCount++;
             }
-        });
-
-        // Wait for all requests to finish
-        await Promise.all(updatePromises);
-
-        // 4. Show the final result
-        if (successCount === uncheckedBoxes.length) {
-            showToast(`تم تحديث ${successCount} عميل بنجاح ✓`);
-        } else {
-            showToast(`تم تحديث ${successCount} فقط من أصل ${uncheckedBoxes.length} ✕`, true);
+        } catch (e) {
+            console.error('Error updating lead', leadId, e);
         }
     });
+
+    await Promise.all(updatePromises);
+    
+    if (successCount > 0) {
+        showToast(`تم تحديث ${successCount} عميل بنجاح ✓`);
+    } else {
+        showToast('فشل التحديث، تأكد من اتصال السيرفر', true);
+    }
 }
 </script>
 

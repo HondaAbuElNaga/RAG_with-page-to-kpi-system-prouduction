@@ -49,6 +49,7 @@ class Lead(Base):
     approved_at = Column(DateTime, nullable=True)      # Approval time
     admin_note = Column(Text, nullable=True)           # Personal note on the lead
     session_summary = Column(String, nullable=True)
+    is_contacted = Column(Boolean, default=False)      # Sales team marks this when they contact the lead
 
 class WeeklyNote(Base):
     """

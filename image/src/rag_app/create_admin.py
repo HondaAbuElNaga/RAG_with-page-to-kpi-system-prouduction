@@ -1,5 +1,6 @@
-from database import SessionLocal
+from database import SessionLocal, engine, Base
 from models import DashboardUser
+import models
 import hashlib
 
 # ---------------------------------------------------------------------------
@@ -8,6 +9,8 @@ import hashlib
 ADMIN_USERNAME = "mohanad"
 ADMIN_PASSWORD = "Elhonda123@#"
 # ---------------------------------------------------------------------------
+
+Base.metadata.create_all(bind=engine)
 
 db = SessionLocal()
 

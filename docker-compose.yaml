@@ -7,7 +7,7 @@ services:
       dockerfile: dockerfile
     container_name: rag-app
     ports:
-      - "80:80"
+      - "8080:80"
     env_file:
       - ./image/.env
     environment:
@@ -19,7 +19,7 @@ services:
     volumes:
       # Bind mount to local data folder (created automatically if it doesn't exist)
       # This maps ./data on your host to /data inside the container
-      - ./data:/data
+      - ./image/src/rag_app/data:/data
       # Optional: Mount .env file if needed (uncomment if you want to override)
       # - ./image/.env:/app/.env:ro
     restart: unless-stopped

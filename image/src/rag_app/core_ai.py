@@ -2,6 +2,7 @@
 import json
 import time
 import asyncio
+import tempfile
 from datetime import datetime
 from pathlib import Path
 from typing import List, Tuple
@@ -9,6 +10,8 @@ from sqlalchemy.orm import Session
 
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langchain_chroma import Chroma
+from langchain_community.document_loaders import PyPDFLoader
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 from chromadb.config import Settings
 
 import models
@@ -126,6 +129,57 @@ def get_chroma_stats():
         except:
             pass
     return {"status": "Not Loaded", "total_documents": 0}
+
+
+def ingest_pdfs(pdf_bytes_list: List[bytes], filenames: List[str],
+                chunk_size: int = 1000, chunk_overlap: int = 200) -> dict:
+    global vector_store
+
+    CHROMA_PATH.mkdir(parents=True, exist_ok=True)
+
+    if vector_store is None:
+        vector_store = Chroma(
+            collection_name=COLLECTION_NAME,
+            embedding_function=embeddings_model,
+            persist_directory=str(CHROMA_PATH),
+            client_settings=Settings(anonymized_telemetry=False),
+        )
+
+    splitter = RecursiveCharacterTextSplitter(
+        chunk_size=chunk_size,
+        chunk_overlap=chunk_overlap,
+    )
+
+    total_pages = 0
+    total_chunks = 0
+
+    for pdf_bytes, filename in zip(pdf_bytes_list, filenames):
+        with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
+            tmp.write(pdf_bytes)
+            tmp_path = tmp.name
+
+        try:
+            loader = PyPDFLoader(tmp_path)
+            pages = loader.load()
+            total_pages += len(pages)
+
+            for page in pages:
+                page.metadata["source"] = filename
+
+            chunks = splitter.split_documents(pages)
+            total_chunks += len(chunks)
+            vector_store.add_documents(chunks)
+            print(f"--- [INGEST] {filename}: {len(pages)} pages → {len(chunks)} chunks ---")
+        finally:
+            os.unlink(tmp_path)
+
+    return {
+        "files": len(pdf_bytes_list),
+        "pages": total_pages,
+        "chunks": total_chunks,
+        "total_documents": vector_store._collection.count(),
+    }
+
 
 # Initialize on import
 load_vector_store()

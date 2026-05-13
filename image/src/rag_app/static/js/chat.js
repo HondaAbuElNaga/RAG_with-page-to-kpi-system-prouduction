@@ -173,7 +173,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     type="tel"
                     placeholder="05xxxxxxxx"
                     maxlength="10"
-                    oninput="this.value = this.value.replace(/[^0-9]/g, '')"
+                    oninput="this.value = this.value.replace(/[^0-9]/g, ''); if(this.value.length >= 2 && !this.value.startsWith('05')) this.value = '05';"
                     style="flex:1; min-width:130px; padding:9px 14px; border:1px solid #ced4da; border-radius:25px; font-family:inherit; font-size:0.9rem; outline:none; text-align: left;">
                 <button
                     id="phoneSubmitBtn"
@@ -221,7 +221,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         // Validate Phone Number
-        const phoneRegex = /^0\d{9}$/; 
+        const phoneRegex = /^05\d{8}$/;
         
         if (!phone || !phoneRegex.test(phone)) {
             phoneInput.style.borderColor = '#dc3545';

@@ -245,7 +245,53 @@
                 </div>
             </div>
 
-        </div> <footer class="text-center mt-5 text-muted">
+        </div>
+
+        <!-- PDF Ingestion -->
+        <div class="row g-4 mt-1">
+            <div class="col-12">
+                <div class="control-card">
+                    <div class="card-header-custom" style="background:#f8f9fa;">
+                        <div class="header-icon" style="background:#fff3e0;color:#e65100;"><i class="fas fa-file-pdf"></i></div>
+                        <div>رفع ملفات PDF إلى قاعدة المعرفة</div>
+                    </div>
+                    <div class="card-body p-4">
+                        {% if message %}
+                        <div class="alert alert-success">{{ message }}</div>
+                        {% endif %}
+                        <form action="/admin/upload-pdfs" method="post" enctype="multipart/form-data">
+                            <div class="upload-area mb-3">
+                                <i class="fas fa-file-pdf fa-3x text-danger mb-3 opacity-50"></i>
+                                <p class="mb-2">اختر ملفات PDF (يمكن اختيار أكثر من ملف)</p>
+                                <input type="file" name="files" class="form-control" accept=".pdf" multiple required>
+                            </div>
+                            <div class="row g-3 mb-3">
+                                <div class="col-6">
+                                    <label class="form-label fw-bold">حجم القطعة (Chunk Size)</label>
+                                    <input type="number" name="chunk_size" class="form-control" value="1000" min="100" max="5000">
+                                    <small class="text-muted">عدد الأحرف في كل قطعة نصية</small>
+                                </div>
+                                <div class="col-6">
+                                    <label class="form-label fw-bold">التداخل (Chunk Overlap)</label>
+                                    <input type="number" name="chunk_overlap" class="form-control" value="200" min="0" max="1000">
+                                    <small class="text-muted">عدد الأحرف المتداخلة بين القطع</small>
+                                </div>
+                            </div>
+                            <div class="d-grid">
+                                <button type="submit" class="btn btn-danger btn-lg shadow-sm">
+                                    <i class="fas fa-brain me-2"></i> معالجة وإضافة للمعرفة
+                                </button>
+                            </div>
+                            <small class="text-muted mt-2 d-block text-center">
+                                <i class="fas fa-info-circle me-1"></i> يضاف المحتوى فوق ما هو موجود — لن يتم حذف البيانات القديمة.
+                            </small>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <footer class="text-center mt-5 text-muted">
             <small>&copy;  المعهد السعودي العالي المتخصص للتدريب   </small>
         </footer>
 

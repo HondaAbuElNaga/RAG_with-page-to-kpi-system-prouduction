@@ -180,6 +180,102 @@
             flex: 1;
         }
         .btn-confirm-no:hover { background: #e2e8f0; color: #0f172a; }
+
+        /* Conversation Hover Panel */
+        .conv-chat-btn { background: #e8f5e9; border: none; border-radius: 6px; padding: 5px 8px; cursor: pointer; transition: 0.2s; font-size: 15px; }
+        .conv-chat-btn:hover { background: #c8e6c9; transform: scale(1.05); }
+
+        #convHoverPanel {
+            display: none;
+            position: fixed;
+            z-index: 4000;
+            width: 380px;
+            max-height: 420px;
+            background: white;
+            border-radius: 14px;
+            box-shadow: 0 12px 40px rgba(0,0,0,0.18);
+            border: 1px solid #e2e8f0;
+            overflow: hidden;
+            flex-direction: column;
+            animation: popIn 0.18s ease;
+        }
+        #convHoverPanel.visible { display: flex; }
+        #convPanelHeader {
+            padding: 12px 16px;
+            background: var(--main-green);
+            color: white;
+            font-size: 13px;
+            font-weight: bold;
+            flex-shrink: 0;
+        }
+        #convPanelBody {
+            padding: 14px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            flex: 1;
+        }
+        .conv-bubble-user {
+            align-self: flex-end;
+            background: #e8f5e9;
+            border-radius: 12px 12px 2px 12px;
+            padding: 8px 12px;
+            max-width: 88%;
+            font-size: 12px;
+            color: #1a4332;
+            font-weight: 600;
+            line-height: 1.5;
+        }
+        .conv-bubble-bot {
+            align-self: flex-start;
+            background: #f1f5f9;
+            border-radius: 12px 12px 12px 2px;
+            padding: 8px 12px;
+            max-width: 88%;
+            font-size: 12px;
+            color: #334155;
+            line-height: 1.5;
+        }
+        .conv-label { font-size: 10px; color: #94a3b8; margin-bottom: 2px; }
+        .conv-empty { text-align: center; color: #aaa; padding: 20px 0; font-size: 13px; }
+
+        /* Conversation Modal (click) */
+        .conv-modal-overlay {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.55);
+            z-index: 5000;
+            align-items: center;
+            justify-content: center;
+            backdrop-filter: blur(3px);
+        }
+        .conv-modal-overlay.open { display: flex; }
+        .conv-modal-box {
+            background: white;
+            border-radius: 16px;
+            width: 90%;
+            max-width: 580px;
+            max-height: 82vh;
+            display: flex;
+            flex-direction: column;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.22);
+            animation: popIn 0.25s ease;
+            overflow: hidden;
+        }
+        .conv-modal-header {
+            padding: 16px 22px;
+            background: var(--main-green);
+            color: white;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-shrink: 0;
+        }
+        .conv-modal-header h4 { margin: 0; font-size: 15px; }
+        .conv-close-btn { background: none; border: none; color: white; font-size: 22px; cursor: pointer; line-height: 1; padding: 0 4px; }
+        .conv-modal-body { padding: 20px; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; }
     </style>
 </head>
 <body>
@@ -278,21 +374,13 @@
                             </div>
                         </td>
                         <td style="text-align: center;">
-                            <div class="tooltip-container">
-                                <span style="font-size:18px;">💡</span>
-                                <div class="tooltip-box">
-                                    {% set qs = questions_map.get(lead.session_id, []) %}
-                                    {% if qs %}
-                                        <ul>
-                                            {% for q in qs %}
-                                                <li>{{ q }}</li>
-                                            {% endfor %}
-                                        </ul>
-                                    {% else %}
-                                        <p style="margin:0; text-align:center;">لا توجد أسئلة مسجلة</p>
-                                    {% endif %}
-                                </div>
-                            </div>
+                            <button
+                                class="conv-chat-btn"
+                                data-session="{{ lead.session_id }}"
+                                onmouseenter="showConvPanel(this, event)"
+                                onmouseleave="scheduleHidePanel()"
+                                onclick="openConvModal('{{ lead.session_id }}')"
+                                title="hover للمعاينة — click للعرض الكامل">💬</button>
                         </td>
                         <td>{{ lead.city or '—' }}</td>
                         <td>{% if lead.is_registered == 'yes' %}<span class="badge badge-success">مسجل</span>{% elif lead.is_registered == 'no' %}<span class="badge badge-danger">غير مسجل</span>{% else %}<span class="badge badge-light">غير محدد</span>{% endif %}</td>
@@ -322,7 +410,24 @@
         </div>
     </main>
 </div>
-// Custom Confirm Modal for safe bulk actions like "Mark All as Contacted"
+<!-- Conversation Hover Panel -->
+<div id="convHoverPanel">
+    <div id="convPanelHeader">المحادثة الكاملة</div>
+    <div id="convPanelBody"></div>
+</div>
+
+<!-- Conversation Modal (click) -->
+<div class="conv-modal-overlay" id="convModal">
+    <div class="conv-modal-box">
+        <div class="conv-modal-header">
+            <h4 id="convModalTitle">المحادثة الكاملة</h4>
+            <button class="conv-close-btn" onclick="closeConvModal()">×</button>
+        </div>
+        <div class="conv-modal-body" id="convModalBody"></div>
+    </div>
+</div>
+
+<!-- Custom Confirm Modal for safe bulk actions like "Mark All as Contacted" -->
 <div class="custom-confirm-overlay" id="customConfirmModal">
     <div class="custom-confirm-box">
         <div id="confirmEmoji" style="font-size: 40px; margin-bottom: 10px;">❓</div>
@@ -335,6 +440,107 @@
     </div>
 </div>
 <script>
+// Conversation data injected from server
+const CONVERSATIONS = {
+    {% for lead in leads %}
+    "{{ lead.session_id }}": [
+        {% set conv = conversations_map.get(lead.session_id, []) %}
+        {% for turn in conv %}
+        { "q": {{ turn.q | tojson }}, "a": {{ turn.a | tojson }} }{% if not loop.last %},{% endif %}
+        {% endfor %}
+    ]{% if not loop.last %},{% endif %}
+    {% endfor %}
+};
+
+let _hideTimer = null;
+const panel = document.getElementById('convHoverPanel');
+const panelBody = document.getElementById('convPanelBody');
+const panelHeader = document.getElementById('convPanelHeader');
+
+panel.addEventListener('mouseenter', () => { clearTimeout(_hideTimer); });
+panel.addEventListener('mouseleave', scheduleHidePanel);
+
+function showConvPanel(btn, event) {
+    clearTimeout(_hideTimer);
+    const sessionId = btn.getAttribute('data-session');
+    const turns = CONVERSATIONS[sessionId] || [];
+
+    panelHeader.textContent = 'المحادثة الكاملة (' + turns.length + ' رسائل)';
+
+    panelBody.innerHTML = buildConvHtml(turns);
+    panel.classList.add('visible');
+    positionPanel(btn);
+}
+
+function positionPanel(btn) {
+    const rect = btn.getBoundingClientRect();
+    const pw = 380;
+    const vw = window.innerWidth, vh = window.innerHeight;
+    const spaceBelow = vh - rect.bottom - 8;
+    const spaceAbove = rect.top - 8;
+
+    let top, maxH;
+    if (spaceBelow >= 180) {
+        top = rect.bottom + 8;
+        maxH = Math.min(420, spaceBelow);
+    } else {
+        maxH = Math.min(420, spaceAbove);
+        top = rect.top - maxH - 8;
+    }
+
+    let left = rect.left;
+    if (left + pw > vw) left = vw - pw - 12;
+    if (left < 8) left = 8;
+
+    panel.style.top = top + 'px';
+    panel.style.left = left + 'px';
+    panel.style.maxHeight = maxH + 'px';
+}
+
+function scheduleHidePanel() {
+    _hideTimer = setTimeout(() => {
+        panel.classList.remove('visible');
+    }, 220);
+}
+
+function escHtml(str) {
+    if (!str) return '';
+    return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function buildConvHtml(turns) {
+    if (turns.length === 0) return '<div class="conv-empty">لا توجد محادثات مسجلة</div>';
+    return turns.map(t => `
+        <div>
+            <div class="conv-label">العميل</div>
+            <div class="conv-bubble-user">${escHtml(t.q)}</div>
+        </div>
+        <div>
+            <div class="conv-label">المساعد الذكي</div>
+            <div class="conv-bubble-bot">${escHtml(t.a)}</div>
+        </div>
+    `).join('');
+}
+
+function openConvModal(sessionId) {
+    const turns = CONVERSATIONS[sessionId] || [];
+    document.getElementById('convModalTitle').textContent = 'المحادثة الكاملة (' + turns.length + ' رسائل)';
+    document.getElementById('convModalBody').innerHTML = buildConvHtml(turns);
+    document.getElementById('convModal').classList.add('open');
+    panel.classList.remove('visible');
+    clearTimeout(_hideTimer);
+}
+
+function closeConvModal() {
+    document.getElementById('convModal').classList.remove('open');
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+    document.getElementById('convModal').addEventListener('click', function(e) {
+        if (e.target === this) closeConvModal();
+    });
+});
+
 // ==========================================
 // 1. Copy, WhatsApp, and Save functions
 // ==========================================

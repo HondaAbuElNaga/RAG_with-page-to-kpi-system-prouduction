@@ -7,7 +7,7 @@ import csv
 import io
 from datetime import datetime
 from pathlib import Path
-
+from typing import List
 import uvicorn
 from fastapi import FastAPI, UploadFile, File, Depends, HTTPException, status, Request, Form
 from fastapi.middleware.cors import CORSMiddleware
@@ -27,8 +27,8 @@ from auth import (
     _hash_password, _make_session_token
 )
 from core_ai import (
-    reload_vector_store, get_chroma_stats, CHROMA_PATH, 
-    generate_response_stream,_compute_lead_status
+    reload_vector_store, get_chroma_stats, CHROMA_PATH,
+    generate_response_stream, _compute_lead_status, ingest_pdfs
 )
 # ---------------------------------------------------------------------------
 # Suppress noisy logs
@@ -209,6 +209,41 @@ async def upload_db(
         return JSONResponse(status_code=500, content={"error": str(e)})
     finally:
         MAINTENANCE_MODE = False
+
+
+@app.post("/admin/upload-pdfs")
+async def upload_pdfs(
+    request: Request,
+    files: List[UploadFile] = File(...),
+    chunk_size: int = Form(default=1000),
+    chunk_overlap: int = Form(default=200),
+    username: str = Depends(get_current_admin),
+):
+    if not files or all(f.filename == "" for f in files):
+        return JSONResponse(status_code=400, content={"error": "No PDF files provided"})
+
+    pdf_bytes_list = []
+    filenames = []
+    for f in files:
+        if not f.filename.lower().endswith(".pdf"):
+            return JSONResponse(status_code=400, content={"error": f"{f.filename} is not a PDF"})
+        pdf_bytes_list.append(await f.read())
+        filenames.append(f.filename)
+
+    try:
+        stats = ingest_pdfs(pdf_bytes_list, filenames, chunk_size, chunk_overlap)
+        db_stats = get_chroma_stats()
+        return templates.TemplateResponse(
+            "maintenance.html",
+            {
+                "request": request,
+                "is_maintenance": MAINTENANCE_MODE,
+                "db_stats": db_stats,
+                "message": f"✓ Ingested {stats['files']} file(s) — {stats['pages']} pages — {stats['chunks']} chunks added.",
+            },
+        )
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": str(e)})
 
 
 @app.get("/admin/kpi", response_class=HTMLResponse)
@@ -1100,7 +1135,7 @@ async def get_week_data(
 # ---------------------------------------------------------------------------
 # Export leads report as HTML (for sales to download and share with team)
 # ---------------------------------------------------------------------------
-from typing import Optional
+from typing import Optional, List
 from fastapi.responses import HTMLResponse
 
 @app.get("/trackdashboard/export-leads-html")
@@ -1174,9 +1209,10 @@ async def view_leads_report_page(
 
 
     questions_map = defaultdict(list)
+    conversations_map = defaultdict(list)
     if session_ids:
         logs = (
-            db.query(models.ChatLog.session_id, models.ChatLog.user_query)
+            db.query(models.ChatLog.session_id, models.ChatLog.user_query, models.ChatLog.bot_answer)
             .filter(models.ChatLog.session_id.in_(session_ids))
             .order_by(models.ChatLog.timestamp.asc())
             .all()
@@ -1184,11 +1220,16 @@ async def view_leads_report_page(
         for log in logs:
             if log.user_query:
                 questions_map[log.session_id].append(log.user_query)
+                conversations_map[log.session_id].append({
+                    "q": log.user_query,
+                    "a": log.bot_answer or "",
+                })
 
     context = {
         "request": request,
         "leads": leads,
-        "questions_map": questions_map, 
+        "questions_map": questions_map,
+        "conversations_map": conversations_map,
         "generated_at": datetime.now(),
     }
 

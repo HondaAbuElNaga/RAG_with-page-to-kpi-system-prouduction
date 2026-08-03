@@ -482,7 +482,7 @@ Output only the improved search query with no preamble:
     You MUST reply in that exact language — if English, reply in English only.
     If Arabic, reply in Arabic only. Never mix languages.
     2. If asked about a city not in the list, apologize and mention available branches.
-    3. For pricing or registration questions, share: unified number 920012673 and WhatsApp 0562510671.
+    3. For pricing or registration questions, share: unified number 920012673 and WhatsApp 0552812335.
     4. Be direct and concise.
 
     User: {message}

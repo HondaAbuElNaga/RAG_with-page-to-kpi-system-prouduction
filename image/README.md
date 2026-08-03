@@ -1,50 +1,71 @@
 ## 1. Run Locally (Python)
+
 If you want to test without Docker:
 
 `cd image`
 #### Unix/macOS:
+
 `source .venv/bin/activate`
 #### Windows:
+
 `.venv\Scripts\activate`
 
 #### Install dependencies
+
 `pip install -r requirements.txt`
 
 #### Run the server
+
 `cd image/src/rag_app`
 `uvicorn main:app --reload --host 0.0.0.0 --port 8000`
 
-#### Using uv`` 
+#### Using uv
+
 `uv sync`
 `cd src/rag_app`
 `uv run uvicorn main:app --reload --host 0.0.0.0 --port 8000`
 
 
 ## 2. Docker image
-#### Build Docker image
+
+### Build Docker image
+
 `docker builder prune -f`
 `docker build -t my-rag-app .`
 
-#### Run docker image for testing
-`docker run -p 80:80 --env-file .env my-rag-app`
+### Run docker image for testing
+
+`docker-compose up`
+
+```bash
+    docker run -p 8080:80 --env-file .env
+    -e CHROMA_PATH=/data/chroma_db `
+    -e DB_PATH=/data/kpi_data.db `
+    -v "E:\Machine Learning\CodE\2.
+    Projects\prouduction\image\src\rag_app\data:/data" `
+    my-rag-ap
+```
 
 ## 3. Deployment to AWS (ECS & ECR)
 
-#### Push to dockerhub
+### Push to dockerhub
 
+`docker build -t ebrahemhesham/rag-app:v2 ./image`
 `docker login`
-`docker tag my-rag-app ebrahemhesham/rag-app:v1`
-`docker push ebrahemhesham/rag-app:v1`
+`docker push ebrahemhesham/rag-app:v2`
 
-#### Update AWS ECS Service
+### Update AWS ECS Service
 
 ```bash
 aws ecs update-service \
-   --cluster default \
-   --service sstli-chatbot-spot \
-   --force-new-deployment 
+    --cluster default \
+    --service sstli-chatbot-spot \
+    --task-definition sstli-chatbot-v3 \
+    --force-new-deployment
 ```
+
 #### Create EFS (Repeat for each subnet ID where your Fargate tasks run)
+
 ```bash
 aws efs create-mount-target \
     --file-system-id <fs-id> \
@@ -53,6 +74,7 @@ aws efs create-mount-target \
 ```
 
  ## 4. to AWS CloudWatch Logs Evluated
+
 fields @timestamp, question, context, answer
 | filter log_type = "RAG_EVAL"
 | sort @timestamp desc
@@ -67,10 +89,3 @@ Sales: https://d14hbi7dyty7wy.cloudfront.net/dashboard
 Admin (Track): https://d14hbi7dyty7wy.cloudfront.net/trackdashboard
 Login: https://d14hbi7dyty7wy.cloudfront.net/dashboard/login
 
-
-
-curl -X POST "https://d14hbi7dyty7wy.cloudfront.net/trackdashboard/users/create" \
-  -u "ADMIN_USER:ADMIN_PASS" \
-  -F "username=mohanad yehia" \
-  -F "password=Elhonda123@#" \
-  -F "role=admin"

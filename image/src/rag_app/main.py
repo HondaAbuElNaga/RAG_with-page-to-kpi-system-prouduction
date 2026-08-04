@@ -348,45 +348,61 @@ def view_chat_log(
 
 
 def _fetch_cloudwatch_rag_eval(limit: int = 30):
-    """Fetch the most recent RAG_EVAL JSON log lines from CloudWatch.
+    """Fetch the most recent RAG_EVAL log entries via CloudWatch Logs Insights.
 
     Returns (events, error) — error is None on success, or a short message
     if CloudWatch is unreachable (e.g. no AWS credentials in local dev).
+
+    Uses Logs Insights (same query documented in CLAUDE.md) instead of
+    tailing raw get_log_events: RAG_EVAL lines are sparse compared to the
+    routine uvicorn access-log noise (health checks, /docs polling) in the
+    stream, so a plain "last N lines" tail can easily miss them entirely.
+    Insights filters server-side across the whole log group instead.
     """
+    import time as _time
+
     try:
         import boto3
-        import json as _json
 
-        client = boto3.client("logs")
+        region = os.getenv("AWS_REGION") or os.getenv("AWS_DEFAULT_REGION") or "us-east-1"
+        client = boto3.client("logs", region_name=region)
         log_group = os.getenv("CLOUDWATCH_LOG_GROUP", "/ecs/sstli-chatbot")
 
-        streams = client.describe_log_streams(
-            logGroupName=log_group,
-            orderBy="LastEventTime",
-            descending=True,
-            limit=1,
-        )["logStreams"]
-        if not streams:
-            return [], "No log streams found."
+        end_time = int(_time.time())
+        start_time = end_time - 7 * 24 * 3600  # look back 7 days
 
-        response = client.get_log_events(
+        query_id = client.start_query(
             logGroupName=log_group,
-            logStreamName=streams[0]["logStreamName"],
-            limit=200,
-            startFromHead=False,
-        )
+            startTime=start_time,
+            endTime=end_time,
+            queryString=(
+                'fields @timestamp, question, answer '
+                '| filter log_type = "RAG_EVAL" '
+                '| sort @timestamp desc '
+                f'| limit {limit}'
+            ),
+        )["queryId"]
+
+        result = None
+        for _ in range(15):  # poll up to ~7.5s
+            result = client.get_query_results(queryId=query_id)
+            if result["status"] in ("Complete", "Failed", "Cancelled", "Timeout"):
+                break
+            _time.sleep(0.5)
+
+        if not result or result["status"] != "Complete":
+            status = result["status"] if result else "no response"
+            return [], f"CloudWatch query did not complete ({status})."
 
         events = []
-        for e in response.get("events", []):
-            try:
-                data = _json.loads(e["message"])
-                if data.get("log_type") == "RAG_EVAL":
-                    events.append(data)
-            except (ValueError, KeyError):
-                continue
-
-        events.reverse()
-        return events[:limit], None
+        for row in result.get("results", []):
+            field_map = {f["field"]: f["value"] for f in row}
+            events.append({
+                "timestamp": field_map.get("@timestamp"),
+                "question": field_map.get("question", ""),
+                "answer": field_map.get("answer", ""),
+            })
+        return events, None
     except Exception as e:
         return [], f"CloudWatch unavailable: {e}"
 

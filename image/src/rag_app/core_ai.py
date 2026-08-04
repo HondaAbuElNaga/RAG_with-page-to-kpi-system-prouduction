@@ -1,4 +1,5 @@
-# This file will serve as the 'brain' of the project, containing ChromaDB, the RAG engine, and background tasksimport os
+# This file will serve as the 'brain' of the project, containing ChromaDB, the RAG engine, and background tasks
+import os
 import json
 import time
 import asyncio
@@ -15,8 +16,6 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from chromadb.config import Settings
 
 import models
-from database import SessionLocal
-import os 
 from database import engine, SessionLocal
 # ---------------------------------------------------------------------------
 # AI Models & Vector Store Configuration
@@ -31,6 +30,12 @@ else:
     CHROMA_PATH = BASE_DIR / "data" / "chroma_db"
 
 COLLECTION_NAME = "example_collection"
+
+# Cost-control caps for background LLM classification tasks — keep these
+# prompts flat-sized regardless of how much history the app accumulates.
+RECENT_TOPICS_SCAN_ROWS = 200   # how many recent chat_logs rows to scan for topics
+RECENT_TOPICS_LIMIT = 30        # max distinct topics sent to the topic classifier
+INTENT_HISTORY_LIMIT = 15       # max recent user messages sent to intent detection
 
 embeddings_model = OpenAIEmbeddings(model="text-embedding-3-small")
 llm = ChatOpenAI(temperature=0.1, model="gpt-4o-mini")
@@ -217,13 +222,22 @@ No explanation, no punctuation, just the category name ,dont take any greetings 
                 category = "other"
 
         # --- Step 2: Assign topic (smart clustering) ---
-        existing_topics = (
+        # Scan only the most recent rows and dedupe in Python, so this prompt
+        # stays flat-sized regardless of how many topics have accumulated
+        # over the app's lifetime (recent topics are what matter for clustering).
+        recent_logs = (
             db.query(models.ChatLog.topic)
             .filter(models.ChatLog.topic != None)
-            .distinct()
+            .order_by(models.ChatLog.timestamp.desc())
+            .limit(RECENT_TOPICS_SCAN_ROWS)
             .all()
         )
-        topics_list = [t[0] for t in existing_topics if t[0]]
+        topics_list = []
+        for (t,) in recent_logs:
+            if t and t not in topics_list:
+                topics_list.append(t)
+            if len(topics_list) >= RECENT_TOPICS_LIMIT:
+                break
 
         if topics_list:
             topics_str = "\n".join([f"- {t}" for t in topics_list])
@@ -274,19 +288,24 @@ async def detect_intent_background(session_id: str, message: str):
         if lead.asked_about_price and lead.asked_about_registration:
             return
 
-        # 2. جلب **جميع أسئلة العميل فقط** في هذه الجلسة (بدون ردود البوت)
-        all_user_logs = (
+        # 2. جلب آخر أسئلة العميل فقط في هذه الجلسة (بدون ردود البوت)
+        # Capped to the most recent N messages so this prompt stays flat-sized
+        # instead of growing (and re-billing) with total session length.
+        recent_user_logs = (
             db.query(models.ChatLog.user_query)
             .filter(models.ChatLog.session_id == session_id)
-            .order_by(models.ChatLog.timestamp.asc())
+            .order_by(models.ChatLog.timestamp.desc())
+            .limit(INTENT_HISTORY_LIMIT)
             .all()
         )
-        
-        if not all_user_logs:
+
+        if not recent_user_logs:
             return
 
-        # تجميع أسئلة العميل في نص واحد
-        user_questions_text = "\n".join([f"- {log[0]}" for log in all_user_logs if log[0]])
+        # تجميع أسئلة العميل في نص واحد (بترتيب زمني تصاعدي)
+        user_questions_text = "\n".join(
+            [f"- {log[0]}" for log in reversed(recent_user_logs) if log[0]]
+        )
 
         # 3. توجيه النموذج لتحليل القائمة
         intent_prompt = f"""
@@ -356,66 +375,10 @@ Respond ONLY with valid JSON, no explanation:
         db.close()
 
 
-# async def generate_session_summary_background(session_id: str):
-#     db = SessionLocal()
-#     try:
-#         # التأكد من وجود العميل أولاً
-#         lead = db.query(models.Lead).filter(models.Lead.session_id == session_id).first()
-#         if not lead:
-#             return  
-            
-#         # جلب جميع أسئلة العميل في الجلسة
-#         all_user_logs = (
-#             db.query(models.ChatLog.user_query)
-#             .filter(models.ChatLog.session_id == session_id)
-#             .order_by(models.ChatLog.timestamp.asc())
-#             .all()
-#         )
-        
-#         if not all_user_logs:
-#             return
-
-#         # تجميع الأسئلة في نص واحد
-#         user_questions_text = "\n".join([f"- {log[0]}" for log in all_user_logs if log[0]])
-
-#         # توجيه النموذج لعمل ملخص فقط وبدون JSON
-#         summary_prompt = f"""
-# You are an expert sales analyst for a Saudi Institute. 
-# Analyze the following user questions from a single session and write a brief summary.
-
-# User Questions:
-# {user_questions_text}
-
-# Task: Create a very short Arabic summary of what the user is looking for (maximum 10 words).
-# Example: "اهتمام بدبلوم القانون وفروع الرياض"
-# Example: "استفسار عن دبلوم البرمجة وطريقة التسجيل"
-
-# Respond ONLY with the Arabic summary text, nothing else. No formatting, no markdown.
-# """
-#         # إرسال الطلب
-#         # summary_response = await llm.ainvoke(summary_prompt)
-#         # summary_text = summary_response.content.strip()
-
-#         # تحديث قاعدة البيانات
-#         # lead.session_summary = summary_text
-#         db.commit()
-        
-#         # print(f"--- [DEBUG] SESSION SUMMARY UPDATED: {summary_text} ---")
-
-#     except Exception as e:
-#         print(f"--- [ERROR] Summary generation failed: {e} ---")
-#     finally:
-#         db.close()
-
 # ---------------------------------------------------------------------------
 # RAG Core Logic
 # ---------------------------------------------------------------------------
-
-
-# ---------------------------------------------------------------------------
-# RAG logic (unchanged)
-# ---------------------------------------------------------------------------
-def prepare_rag_context(message: str, history: List[Tuple[str, str]]):
+async def prepare_rag_context(message: str, history: List[Tuple[str, str]]):
     if not vector_store:
         return None, message, [], history
 
@@ -451,7 +414,8 @@ Task:
 Output only the improved search query with no preamble:
 """
         try:
-            search_query = llm.invoke(rephrase_prompt).content.strip()
+            rephrase_response = await llm.ainvoke(rephrase_prompt)
+            search_query = rephrase_response.content.strip()
             print(f"--- [DEBUG] Smart Search Query: {search_query} ---")
         except Exception as e:
             print(f"--- [ERROR] Rephrase failed: {e} ---")
@@ -498,7 +462,7 @@ async def generate_response_stream(
 ):
     start_time = time.time()
 
-    rag_prompt, search_query, docs, _ = prepare_rag_context(message, history)
+    rag_prompt, search_query, docs, _ = await prepare_rag_context(message, history)
 
     full_answer = ""
     first_token_time = None
@@ -562,6 +526,7 @@ async def generate_response_stream(
             response_time=response_time_to_log,
             timestamp=datetime.now(),
             is_unanswered=is_unanswered,
+            retrieved_context="\n\n".join(docs) if docs else None,
         )
         db.add(new_log)
         db.commit()
@@ -578,7 +543,6 @@ async def generate_response_stream(
         print(f"--- [LOG] Response Time Saved: {response_time_to_log:.2f}s ---")
         asyncio.create_task(classify_question_background(new_log.id, message))
         asyncio.create_task(detect_intent_background(session_id, message))
-        # asyncio.create_task(generate_session_summary_background(session_id))
 
     except Exception as e:
         print(f"--- [ERROR] DB Save failed: {e} ---")

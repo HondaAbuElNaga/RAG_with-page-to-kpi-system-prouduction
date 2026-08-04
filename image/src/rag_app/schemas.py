@@ -24,3 +24,8 @@ class LeadUpdateRequest(BaseModel):
     lead_status: Optional[str] = None
     is_contacted: Optional[bool] = None
 
+
+class BulkLeadContactedRequest(BaseModel):
+    lead_ids: List[int]
+    is_contacted: bool
+

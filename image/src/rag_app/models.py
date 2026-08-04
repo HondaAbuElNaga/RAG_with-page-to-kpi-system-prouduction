@@ -15,6 +15,7 @@ class ChatLog(Base):
     category = Column(String, nullable=True)
     is_unanswered = Column(Boolean, default=False)
     topic = Column(String, nullable=True, index=True)
+    retrieved_context = Column(Text, nullable=True)
 
 
 

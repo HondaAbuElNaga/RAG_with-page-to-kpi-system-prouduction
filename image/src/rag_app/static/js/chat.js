@@ -14,6 +14,9 @@ document.addEventListener('DOMContentLoaded', () => {
     const sessionId = "sess_" + Date.now().toString(36) + "_" + Math.random().toString(36).substr(2, 9);
     console.log("Session ID:", sessionId);
 
+    // Whether we're on the English chat page - computed once and reused
+    const isEnglish = window.location.pathname.includes('/chat-en');
+
     let chatHistory = [];
 
     // ---------------------------------------------------------------------------
@@ -28,10 +31,6 @@ document.addEventListener('DOMContentLoaded', () => {
         asked_about_price: false,
         asked_about_registration: false,
     };
-    
-    function updateLeadKeywords(message) {
-        // Intentionally empty - intent detection handled by backend LLM
-    }
 
     // ---------------------------------------------------------------------------
     // Submit lead to backend (called after data is collected OR after 3 questions)
@@ -92,9 +91,6 @@ document.addEventListener('DOMContentLoaded', () => {
     function showPhoneForm() {
         // Disable chat until form is handled
         setInputDisabled(true);
-
-        // Check if we are on the English or Arabic page from the URL
-        const isEnglish = window.location.pathname.includes('/chat-en');
 
         // Set texts based on the page language
         const welcomeText = isEnglish ? '👋 Welcome!' : '👋 أهلاً بك!';
@@ -249,8 +245,6 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function addBotGreeting(phone) {
-        // Check page language again
-        const isEnglish = window.location.pathname.includes('/chat-en');
         const div = createMessageElement('bot');
 
         // Set message based on language
@@ -277,9 +271,7 @@ document.addEventListener('DOMContentLoaded', () => {
         userInput.value = '';
         setInputDisabled(true);
 
-        // Track lead keywords
         leadData.question_count += 1;
-        updateLeadKeywords(message);
 
         // Re-submit lead data on every message if we have a phone number
         if (leadData.phone_number) submitLead();
@@ -329,9 +321,6 @@ document.addEventListener('DOMContentLoaded', () => {
             console.error("Error:", error);
             typingIndicator.style.display = 'none';
             const errorDiv = createMessageElement('bot');
-            
-            // Check language for error message
-            const isEnglish = window.location.pathname.includes('/chat-en');
             errorDiv.textContent = isEnglish ? "Sorry, a connection error occurred." : "عذراً، حدث خطأ في الاتصال.";
             errorDiv.style.color = "red";
 

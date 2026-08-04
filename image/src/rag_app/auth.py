@@ -58,10 +58,7 @@ def get_dashboard_user(request: Request):
 
 def get_trackdashboard_user(request: Request):
     """Only admin role can access trackdashboard."""
-    token = request.cookies.get("dashboard_session")
-    if not token:
-        raise HTTPException(status_code=302, headers={"Location": "/dashboard/login"})
-    username, role = _verify_session_token(token)
+    username, role = get_dashboard_user(request)
     if role != "admin":
         raise HTTPException(status_code=403, detail="Admin access required.")
     return username, role

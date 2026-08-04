@@ -795,31 +795,27 @@ async function bulkUpdateContacted(status) {
     if (!confirmed) return;
 
     showToast('جاري التحديث... ⏳');
-    let successCount = 0;
 
-    const updatePromises = checkboxes.map(async (cb) => {
-        const leadId = cb.getAttribute('data-id');
-        try {
-            const res = await fetch(`/trackdashboard/leads/${leadId}/note`, {
-                method: 'PATCH',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ is_contacted: status })
-            });
-            
-            if (res.ok) {
-                cb.checked = status; 
-                successCount++;
-            }
-        } catch (e) {
-            console.error('Error updating lead', leadId, e);
+    // Single bulk request instead of one PATCH per lead — avoids serializing
+    // N concurrent writes behind SQLite's single-writer lock.
+    const leadIds = checkboxes.map(cb => Number(cb.getAttribute('data-id')));
+
+    try {
+        const res = await fetch('/trackdashboard/leads/bulk-contacted', {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ lead_ids: leadIds, is_contacted: status })
+        });
+
+        if (res.ok) {
+            checkboxes.forEach(cb => { cb.checked = status; });
+            const data = await res.json();
+            showToast(`تم تحديث ${data.updated_count} عميل بنجاح ✓`);
+        } else {
+            showToast('فشل التحديث، تأكد من اتصال السيرفر', true);
         }
-    });
-
-    await Promise.all(updatePromises);
-    
-    if (successCount > 0) {
-        showToast(`تم تحديث ${successCount} عميل بنجاح ✓`);
-    } else {
+    } catch (e) {
+        console.error('Error updating leads in bulk', e);
         showToast('فشل التحديث، تأكد من اتصال السيرفر', true);
     }
 }

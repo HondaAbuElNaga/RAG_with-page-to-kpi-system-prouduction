@@ -14,6 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
+from starlette.concurrency import run_in_threadpool
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from dotenv import load_dotenv
@@ -21,7 +22,7 @@ from dotenv import load_dotenv
 # Import our modularized files
 import models
 from database import engine, SessionLocal, get_db
-from schemas import ChatRequest, LeadSubmitRequest, LeadUpdateRequest
+from schemas import ChatRequest, LeadSubmitRequest, LeadUpdateRequest, BulkLeadContactedRequest
 from auth import (
     get_current_admin, get_dashboard_user, get_trackdashboard_user,
     _hash_password, _make_session_token
@@ -59,6 +60,7 @@ app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="stat
 # Lead scoring helper
 # ---------------------------------------------------------------------------
 _MONTHS_AR = ["يناير","فبراير","مارس","أبريل","مايو","يونيو","يوليو","أغسطس","سبتمبر","أكتوبر","نوفمبر","ديسمبر"]
+_DAYS_AR = ["الاثنين","الثلاثاء","الأربعاء","الخميس","الجمعة","السبت","الأحد"]
 _WEEK_ORDINALS_AR = ["الأول","الثاني","الثالث","الرابع","الخامس"]
 
 def _week_label(year: int, week_num: int) -> str:
@@ -66,6 +68,36 @@ def _week_label(year: int, week_num: int) -> str:
     start = datetime.fromisocalendar(year, week_num, 1)
     week_of_month = (start.day - 1) // 7
     return f"الأسبوع {_WEEK_ORDINALS_AR[week_of_month]} من {_MONTHS_AR[start.month - 1]}"
+
+
+def _week_bounds(year: int, week_num: int) -> tuple:
+    """Start/end datetimes (inclusive) for an ISO week — for SQL range filtering."""
+    from datetime import datetime, timedelta
+    start = datetime.fromisocalendar(year, week_num, 1).replace(hour=0, minute=0, second=0, microsecond=0)
+    end = start + timedelta(days=6, hours=23, minutes=59, seconds=59)
+    return start, end
+
+
+def _month_bounds(year: int, month: int) -> tuple:
+    """Start/end datetimes (inclusive) for a calendar month — for SQL range filtering."""
+    from datetime import datetime
+    from calendar import monthrange
+    start = datetime(year, month, 1)
+    last_day = monthrange(year, month)[1]
+    end = datetime(year, month, last_day, 23, 59, 59)
+    return start, end
+
+
+def _build_period_label(report_type: str, filename: str, req) -> tuple:
+    """Derive (period_label, report_period) from the uploaded report's filename."""
+    from datetime import date
+    today = date.today()
+    fname = filename.lower()
+    if "monthly" in fname or "month" in fname:
+        return f"شهري — {_MONTHS_AR[today.month - 1]} {req.year}", "monthly"
+    if report_type == "repeated_visitors" and ("daily" in fname or "day" in fname):
+        return f"يومي — {today.strftime('%Y-%m-%d')}", "daily"
+    return f"أسبوعي — أسبوع {req.week_number} / {req.year}", "weekly"
 
 
 
@@ -88,15 +120,12 @@ async def get_unanswered_questions(
     if not week: week = date.today().isocalendar()[1]
     if not year: year = date.today().year
 
-    all_unanswered = db.query(models.ChatLog).filter(
-        models.ChatLog.is_unanswered == True
+    start_of_week, end_of_week = _week_bounds(year, week)
+    week_unanswered = db.query(models.ChatLog).filter(
+        models.ChatLog.is_unanswered == True,
+        models.ChatLog.timestamp >= start_of_week,
+        models.ChatLog.timestamp <= end_of_week,
     ).all()
-
-    week_unanswered = [
-        log for log in all_unanswered
-        if log.timestamp.isocalendar()[1] == week
-        and log.timestamp.year == year
-    ]
 
     counter = Counter(log.user_query for log in week_unanswered)
 
@@ -168,6 +197,28 @@ async def toggle_maintenance(request: Request, username: str = Depends(get_curre
     )
 
 
+def _replace_chroma_db(file_obj) -> dict:
+    """Blocking disk I/O for a KB upload — run via run_in_threadpool."""
+    temp_zip = "temp.zip"
+    with open(temp_zip, "wb") as b:
+        shutil.copyfileobj(file_obj, b)
+
+    if os.path.exists(CHROMA_PATH):
+        try:
+            shutil.rmtree(CHROMA_PATH)
+        except Exception:
+            pass
+
+    CHROMA_PATH.parent.mkdir(parents=True, exist_ok=True)
+
+    with zipfile.ZipFile(temp_zip, "r") as z:
+        z.extractall(CHROMA_PATH.parent)
+
+    os.remove(temp_zip)
+    reload_vector_store()
+    return get_chroma_stats()
+
+
 @app.post("/admin/upload-db")
 async def upload_db(
     request: Request,
@@ -177,25 +228,7 @@ async def upload_db(
     global MAINTENANCE_MODE
     MAINTENANCE_MODE = True
     try:
-        temp_zip = "temp.zip"
-        with open(temp_zip, "wb") as b:
-            shutil.copyfileobj(file.file, b)
-
-        if os.path.exists(CHROMA_PATH):
-            try:
-                shutil.rmtree(CHROMA_PATH)
-            except:
-                pass
-
-        CHROMA_PATH.parent.mkdir(parents=True, exist_ok=True)
-
-        with zipfile.ZipFile(temp_zip, "r") as z:
-            z.extractall(CHROMA_PATH.parent)
-
-        os.remove(temp_zip)
-        reload_vector_store()
-
-        stats = get_chroma_stats()
+        stats = await run_in_threadpool(_replace_chroma_db, file.file)
         return templates.TemplateResponse(
             "maintenance.html",
             {
@@ -231,7 +264,7 @@ async def upload_pdfs(
         filenames.append(f.filename)
 
     try:
-        stats = ingest_pdfs(pdf_bytes_list, filenames, chunk_size, chunk_overlap)
+        stats = await run_in_threadpool(ingest_pdfs, pdf_bytes_list, filenames, chunk_size, chunk_overlap)
         db_stats = get_chroma_stats()
         return templates.TemplateResponse(
             "maintenance.html",
@@ -312,6 +345,100 @@ def view_chat_log(
     if not log:
         raise HTTPException(status_code=404, detail="Log not found")
     return templates.TemplateResponse("chat_details.html", {"request": request, "log": log})
+
+
+def _fetch_cloudwatch_rag_eval(limit: int = 30):
+    """Fetch the most recent RAG_EVAL JSON log lines from CloudWatch.
+
+    Returns (events, error) — error is None on success, or a short message
+    if CloudWatch is unreachable (e.g. no AWS credentials in local dev).
+    """
+    try:
+        import boto3
+        import json as _json
+
+        client = boto3.client("logs")
+        log_group = os.getenv("CLOUDWATCH_LOG_GROUP", "/ecs/sstli-chatbot")
+
+        streams = client.describe_log_streams(
+            logGroupName=log_group,
+            orderBy="LastEventTime",
+            descending=True,
+            limit=1,
+        )["logStreams"]
+        if not streams:
+            return [], "No log streams found."
+
+        response = client.get_log_events(
+            logGroupName=log_group,
+            logStreamName=streams[0]["logStreamName"],
+            limit=200,
+            startFromHead=False,
+        )
+
+        events = []
+        for e in response.get("events", []):
+            try:
+                data = _json.loads(e["message"])
+                if data.get("log_type") == "RAG_EVAL":
+                    events.append(data)
+            except (ValueError, KeyError):
+                continue
+
+        events.reverse()
+        return events[:limit], None
+    except Exception as e:
+        return [], f"CloudWatch unavailable: {e}"
+
+
+@app.get("/admin/monitoring", response_class=HTMLResponse)
+def monitoring_page(
+    request: Request,
+    db: Session = Depends(get_db),
+    username: str = Depends(get_current_admin),
+):
+    logs = (
+        db.query(models.ChatLog)
+        .order_by(models.ChatLog.timestamp.desc())
+        .limit(100)
+        .all()
+    )
+
+    total_chats = db.query(models.ChatLog).count()
+    unanswered_count = db.query(models.ChatLog).filter(models.ChatLog.is_unanswered == True).count()
+
+    avg_speed_all = 0
+    avg_speed_last_10 = 0
+    if total_chats > 0:
+        all_times = [r[0] for r in db.query(models.ChatLog.response_time).all() if r[0] is not None]
+        if all_times:
+            avg_speed_all = sum(all_times) / len(all_times)
+
+        last_10_times = [
+            r[0] for r in db.query(models.ChatLog.response_time)
+            .order_by(models.ChatLog.timestamp.desc())
+            .limit(10)
+            .all()
+            if r[0] is not None
+        ]
+        if last_10_times:
+            avg_speed_last_10 = sum(last_10_times) / len(last_10_times)
+
+    cloudwatch_events, cloudwatch_error = _fetch_cloudwatch_rag_eval()
+
+    return templates.TemplateResponse(
+        "monitoring.html",
+        {
+            "request": request,
+            "logs": logs,
+            "total_chats": total_chats,
+            "unanswered_count": unanswered_count,
+            "avg_speed_all": round(avg_speed_all, 2),
+            "avg_speed_last_10": round(avg_speed_last_10, 2),
+            "cloudwatch_events": cloudwatch_events,
+            "cloudwatch_error": cloudwatch_error,
+        },
+    )
 
 
 @app.get("/admin/export-csv")
@@ -758,6 +885,28 @@ async def update_lead_note(
     return {"status": "updated"}
 
 
+@app.patch("/trackdashboard/leads/bulk-contacted")
+async def bulk_update_leads_contacted(
+    payload: BulkLeadContactedRequest, request: Request, db: Session = Depends(get_db)
+):
+    """Update is_contacted for many leads in a single DB commit.
+
+    Replaces firing one PATCH-per-lead from the frontend, which serializes
+    behind SQLite's single-writer lock and gets slow fast as the selection grows.
+    """
+    get_dashboard_user(request)
+    if not payload.lead_ids:
+        return {"status": "updated", "updated_count": 0}
+
+    updated_count = (
+        db.query(models.Lead)
+        .filter(models.Lead.id.in_(payload.lead_ids))
+        .update({"is_contacted": payload.is_contacted}, synchronize_session=False)
+    )
+    db.commit()
+    return {"status": "updated", "updated_count": updated_count}
+
+
 # ---------------------------------------------------------------------------
 # trackdashboard: weekly note
 # ---------------------------------------------------------------------------
@@ -929,7 +1078,8 @@ async def run_migrations():
         ("uploaded_reports", "report_period", "VARCHAR"),
         ("uploaded_reports", "period_label",  "VARCHAR"),
         ("weekly_notes",     "published_at",  "DATETIME"),
-    
+        ("chat_logs",  "retrieved_context", "TEXT"),
+
     ]
     with engine.connect() as conn:
         for table, col, col_type in columns:
@@ -938,7 +1088,7 @@ async def run_migrations():
                 conn.commit()
                 print(f"--- [MIGRATE] ✓ {table}.{col} added ---")
             except Exception as e:
-                print(f"--- [MIGRATE] • {table}.{col}: already exists ---")
+                print(f"--- [MIGRATE] • {table}.{col}: already exists ({e}) ---")
 
 @app.post("/dashboard/request-report")
 async def request_report(
@@ -1257,37 +1407,8 @@ async def upload_report_for_request(
     html_content = content.decode("utf-8", errors="ignore")
 
     # Determine period label
-    from datetime import date
-    today = date.today()
-
-    if req.report_type == "peak_hours":
-        # اشوف هو اسبوعي ولا شهري من اسم الملف
-        fname = file.filename.lower()
-        if "monthly" in fname or "month" in fname:
-            months_ar = ["","يناير","فبراير","مارس","أبريل","مايو","يونيو",
-                        "يوليو","أغسطس","سبتمبر","أكتوبر","نوفمبر","ديسمبر"]
-            month_num = today.month
-            period_label  = f"شهري — {months_ar[month_num]} {req.year}"
-            report_period = "monthly"
-        else:
-            period_label  = f"أسبوعي — أسبوع {req.week_number} / {req.year}"
-            report_period = "weekly"
-
-    elif req.report_type == "repeated_visitors":
-        fname = file.filename.lower()
-        if "monthly" in fname or "month" in fname:
-            months_ar = ["","يناير","فبراير","مارس","أبريل","مايو","يونيو",
-                        "يوليو","أغسطس","سبتمبر","أكتوبر","نوفمبر","ديسمبر"]
-            month_num = today.month
-            period_label  = f"شهري — {months_ar[month_num]} {req.year}"
-            report_period = "monthly"
-        elif "daily" in fname or "day" in fname:
-            period_label  = f"يومي — {today.strftime('%Y-%m-%d')}"
-            report_period = "daily"
-        else:
-            period_label  = f"أسبوعي — أسبوع {req.week_number} / {req.year}"
-            report_period = "weekly"
-
+    if req.report_type in ("peak_hours", "repeated_visitors"):
+        period_label, report_period = _build_period_label(req.report_type, file.filename, req)
     else:
         period_label  = f"أسبوع {req.week_number} / {req.year}"
         report_period = req.report_type
@@ -1573,14 +1694,11 @@ async def peak_hours_weekly(
     if not week: week = today.isocalendar()[1]
     if not year: year = today.year
 
-    days_ar = ["الاثنين","الثلاثاء","الأربعاء","الخميس","الجمعة","السبت","الأحد"]
-
-    all_logs = db.query(models.ChatLog).all()
-    week_logs = [
-        l for l in all_logs
-        if l.timestamp.isocalendar()[1] == week
-        and l.timestamp.year == year
-    ]
+    start_of_week, end_of_week = _week_bounds(year, week)
+    week_logs = db.query(models.ChatLog).filter(
+        models.ChatLog.timestamp >= start_of_week,
+        models.ChatLog.timestamp <= end_of_week,
+    ).all()
 
     day_counts  = defaultdict(int)
     hour_counts = defaultdict(int)
@@ -1599,11 +1717,11 @@ async def peak_hours_weekly(
         "week_num":        week,
         "year":            year,
         "generated_at":    datetime.now().strftime("%Y-%m-%d %H:%M"),
-        "peak_day":        days_ar[peak_day] if day_counts else "—",
+        "peak_day":        _DAYS_AR[peak_day] if day_counts else "—",
         "peak_hour":       f"{peak_hour:02d}:00 — {peak_hour+1:02d}:00",
         "total_sessions":  len(set(l.session_id for l in week_logs)),
         "total_questions": len(week_logs),
-        "days_labels":     json.dumps([d for d in days_ar]),
+        "days_labels":     json.dumps([d for d in _DAYS_AR]),
         "days_data":       json.dumps([day_counts.get(i, 0) for i in range(7)]),
         "hours_labels":    json.dumps([f"{h:02d}:00" for h in range(24)]),
         "hours_data":      json.dumps([hour_counts.get(i, 0) for i in range(24)]),
@@ -1638,16 +1756,11 @@ async def peak_hours_monthly(
     if not month: month = today.month
     if not year:  year  = today.year
 
-    days_ar    = ["الاثنين","الثلاثاء","الأربعاء","الخميس","الجمعة","السبت","الأحد"]
-    months_ar  = ["","يناير","فبراير","مارس","أبريل","مايو","يونيو",
-                  "يوليو","أغسطس","سبتمبر","أكتوبر","نوفمبر","ديسمبر"]
-
-    all_logs = db.query(models.ChatLog).all()
-    month_logs = [
-        l for l in all_logs
-        if l.timestamp.month == month
-        and l.timestamp.year == year
-    ]
+    start_of_month, end_of_month = _month_bounds(year, month)
+    month_logs = db.query(models.ChatLog).filter(
+        models.ChatLog.timestamp >= start_of_month,
+        models.ChatLog.timestamp <= end_of_month,
+    ).all()
 
     day_counts  = defaultdict(int)
     hour_counts = defaultdict(int)
@@ -1670,13 +1783,13 @@ async def peak_hours_monthly(
         "report_type":     "monthly",
         "week_num":        month,
         "year":            year,
-        "month_name":      months_ar[month],
+        "month_name":      _MONTHS_AR[month - 1],
         "generated_at":    datetime.now().strftime("%Y-%m-%d %H:%M"),
-        "peak_day":        days_ar[peak_day] if day_counts else "—",
+        "peak_day":        _DAYS_AR[peak_day] if day_counts else "—",
         "peak_hour":       f"{peak_hour:02d}:00 — {peak_hour+1:02d}:00",
         "total_sessions":  len(set(l.session_id for l in month_logs)),
         "total_questions": len(month_logs),
-        "days_labels":     json.dumps([d for d in days_ar]),
+        "days_labels":     json.dumps([d for d in _DAYS_AR]),
         "days_data":       json.dumps([day_counts.get(i, 0) for i in range(7)]),
         "hours_labels":    json.dumps([f"{h:02d}:00" for h in range(24)]),
         "hours_data":      json.dumps([hour_counts.get(i, 0) for i in range(24)]),
@@ -1704,17 +1817,16 @@ async def get_topic_questions(
     if not week: week = date.today().isocalendar()[1]
     if not year: year = date.today().year
 
-    all_logs = (
+    start_of_week, end_of_week = _week_bounds(year, week)
+    week_logs = (
         db.query(models.ChatLog)
-        .filter(models.ChatLog.topic != None)
+        .filter(
+            models.ChatLog.topic != None,
+            models.ChatLog.timestamp >= start_of_week,
+            models.ChatLog.timestamp <= end_of_week,
+        )
         .all()
     )
-
-    week_logs = [
-        log for log in all_logs
-        if log.timestamp.isocalendar()[1] == week
-        and log.timestamp.year == year
-    ]
 
     counter = Counter(log.topic for log in week_logs)
 

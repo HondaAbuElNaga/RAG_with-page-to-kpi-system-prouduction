@@ -17,9 +17,8 @@ from chromadb.config import Settings
 
 import models
 from database import engine, SessionLocal
-# ---------------------------------------------------------------------------
+
 # AI Models & Vector Store Configuration
-# ---------------------------------------------------------------------------
 models.Base.metadata.create_all(bind=engine)
 BASE_DIR = Path(__file__).resolve().parent
 CHROMA_PATH_ENV = os.getenv("CHROMA_PATH")
@@ -38,7 +37,7 @@ RECENT_TOPICS_LIMIT = 30        # max distinct topics sent to the topic classifi
 INTENT_HISTORY_LIMIT = 15       # max recent user messages sent to intent detection
 
 embeddings_model = OpenAIEmbeddings(model="text-embedding-3-small")
-llm = ChatOpenAI(temperature=0.1, model="gpt-4o-mini")
+llm = ChatOpenAI(temperature=0, model="gpt-4o-mini")
 vector_store = None
 
 # Global Facts for RAG
@@ -104,9 +103,7 @@ def _compute_lead_status(question_count: int, asked_price: bool, asked_reg: bool
         return "warm"
     return "cold"
 
-# ---------------------------------------------------------------------------
 # Vector store helpers
-# ---------------------------------------------------------------------------
 def load_vector_store():
     global vector_store
     if os.path.exists(CHROMA_PATH):
@@ -189,9 +186,7 @@ def ingest_pdfs(pdf_bytes_list: List[bytes], filenames: List[str],
 # Initialize on import
 load_vector_store()
 
-# ---------------------------------------------------------------------------
 # Background task: classify question category with GPT
-# ---------------------------------------------------------------------------
 async def classify_question_background(log_id: int, question: str):
     db = SessionLocal()
     try:
@@ -204,17 +199,17 @@ async def classify_question_background(log_id: int, question: str):
                 f"- {c.name}: {c.description}" for c in categories
             ])
             cat_prompt = f"""
-You are a question classifier for a Saudi training institute chatbot.
-Classify the following question into one of these categories:
+                        You are a question classifier for a Saudi training institute chatbot.
+                        Classify the following question into one of these categories:
 
-{categories_list}
-- other: does not fit any category above
+                        {categories_list}
+                        - other: does not fit any category above
 
-Question: "{question}"
+                        Question: "{question}"
 
-Reply with ONLY the category name in Arabic exactly as written above, or "other".
-No explanation, no punctuation, just the category name ,dont take any greetings as a category.
-"""
+                        Reply with ONLY the category name in Arabic exactly as written above, or "other".
+                        No explanation, no punctuation, just the category name ,dont take any greetings as a category.
+                        """
             cat_response = await llm.ainvoke(cat_prompt)
             category = cat_response.content.strip()
             valid_names = [c.name for c in categories] + ["other"]
@@ -242,28 +237,28 @@ No explanation, no punctuation, just the category name ,dont take any greetings 
         if topics_list:
             topics_str = "\n".join([f"- {t}" for t in topics_list])
             topic_prompt = f"""
-You are a question topic classifier for a Saudi training institute chatbot.
-These are the existing topics:
-{topics_str}
+                            You are a question topic classifier for a Saudi training institute chatbot.
+                            These are the existing topics:
+                            {topics_str}
 
-New question: "{question}"
+                            New question: "{question}"
 
-Rules:
-1. If this question is similar to an existing topic, return that EXACT topic name.
-2. If it's a new topic, create a short Arabic topic name (max 4 words).
-3. Return ONLY the topic name, nothing else.
-"""
-        else:
+                            Rules:
+                            1. If this question is similar to an existing topic, return that EXACT topic name.
+                            2. If it's a new topic, create a short Arabic topic name (max 4 words).
+                            3. Return ONLY the topic name, nothing else.
+                            """
+        else: ### no set of categories the model define thems ###
             topic_prompt = f"""
-Create a short Arabic topic name (max 4 words) for this question:
-"{question}"
+                            Create a short Arabic topic name (max 4 words) for this question:
+                            "{question}"
 
-Return ONLY the topic name, nothing else.
-"""
+                            Return ONLY the topic name, nothing else.
+                            """
         topic_response = await llm.ainvoke(topic_prompt)
         topic = topic_response.content.strip()
 
-        # --- Save to DB ---
+        # Save to DB 
         log = db.query(models.ChatLog).filter(models.ChatLog.id == log_id).first()
         if log:
             log.category = category
@@ -309,33 +304,33 @@ async def detect_intent_background(session_id: str, message: str):
 
         # 3. توجيه النموذج لتحليل القائمة
         intent_prompt = f"""
-You are a strict sales intent classifier for a Saudi training institute.
-Below are ALL the messages sent by a single user in a chat session.
+                        You are a strict sales intent classifier for a Saudi training institute.
+                        Below are ALL the messages sent by a single user in a chat session.
 
-User Messages:
-{user_questions_text}
+                        User Messages:
+                        {user_questions_text}
 
-RULES:
-- Be conservative. Only mark True if the evidence is CLEAR and EXPLICIT.
-- When in doubt → false.
-- Ignore greetings, general questions about courses/content, and location questions.
+                        RULES:
+                        - Be conservative. Only mark True if the evidence is CLEAR and EXPLICIT.
+                        - When in doubt → false.
+                        - Ignore greetings, general questions about courses/content, and location questions.
 
-[CONCEPT 1]: PRICE INTENT
-True ONLY if the user explicitly asks about cost, price, fees, payment, or discounts.
-True examples: "بكم"، "كم التكلفة"، "عندكم خصم"، "كم ادفع"، "الرسوم كم"، "how much"، "price"
-False examples: "وين الفرع"، "ما هي الدورات"، "متى يبدأ"، "كم مدة الدورة"، "ما تخصصاتكم"
+                        [CONCEPT 1]: PRICE INTENT
+                        True ONLY if the user explicitly asks about cost, price, fees, payment, or discounts.
+                        True examples: "بكم"، "كم التكلفة"، "عندكم خصم"، "كم ادفع"، "الرسوم كم"، "how much"، "price"
+                        False examples: "وين الفرع"، "ما هي الدورات"، "متى يبدأ"، "كم مدة الدورة"، "ما تخصصاتكم"
 
-[CONCEPT 2]: REGISTRATION INTENT
-True ONLY if the user explicitly asks about registering, applying, joining, or enrollment steps.
-True examples: "كيف اسجل"، "وش الشروط"، "ابي انضم"، "رابط التسجيل"، "كيف القبول"، "how to apply"
-False examples: "عندكم دبلوم"، "ما هي الدورات"، "كم مدة الدورة"
+                        [CONCEPT 2]: REGISTRATION INTENT
+                        True ONLY if the user explicitly asks about registering, applying, joining, or enrollment steps.
+                        True examples: "كيف اسجل"، "وش الشروط"، "ابي انضم"، "رابط التسجيل"، "كيف القبول"، "how to apply"
+                        False examples: "عندكم دبلوم"، "ما هي الدورات"، "كم مدة الدورة"
 
-Respond ONLY with valid JSON, no explanation:
-{{
-    "price_intent": true or false,
-    "registration_intent": true or false
-}}
-"""
+                        Respond ONLY with valid JSON, no explanation:
+                        {{
+                            "price_intent": true or false,
+                            "registration_intent": true or false
+                        }}
+                        """
         # 4. إرسال الطلب للنموذج
         intent_response = await llm.ainvoke(intent_prompt)
         response_text = intent_response.content.strip()
@@ -375,9 +370,7 @@ Respond ONLY with valid JSON, no explanation:
         db.close()
 
 
-# ---------------------------------------------------------------------------
 # RAG Core Logic
-# ---------------------------------------------------------------------------
 async def prepare_rag_context(message: str, history: List[Tuple[str, str]]):
     if not vector_store:
         return None, message, [], history
@@ -398,21 +391,21 @@ async def prepare_rag_context(message: str, history: List[Tuple[str, str]]):
 
     if history:
         rephrase_prompt = f"""
-You are an expert at understanding conversation context.
-You have a previous conversation and a new user message.
+            You are an expert at understanding conversation context.
+            You have a previous conversation and a new user message.
 
-Conversation history:
-{formatted_history_text}
+            Conversation history:
+            {formatted_history_text}
 
-Latest user message: {message}
+            Latest user message: {message}
 
-Task:
-- If the user reply is an answer to an assistant question, infer the next logical step and use that as the search query.
-- If it is a new question, rephrase it clearly.
-- IMPORTANT: Keep the search query in the SAME language as the user message.
+            Task:
+            - If the user reply is an answer to an assistant question, infer the next logical step and use that as the search query.
+            - If it is a new question, rephrase it clearly.
+            - IMPORTANT: Keep the search query in the SAME language as the user message.
 
-Output only the improved search query with no preamble:
-"""
+            Output only the improved search query with no preamble:
+            """
         try:
             rephrase_response = await llm.ainvoke(rephrase_prompt)
             search_query = rephrase_response.content.strip()
@@ -428,30 +421,30 @@ Output only the improved search query with no preamble:
     
 
     rag_prompt = f"""
-    You are a smart assistant for the Saudi Specialized Higher Institute for Training.
-    You answer questions from website visitors.
+                You are a smart assistant for the Saudi Specialized Higher Institute for Training.
+                You answer questions from website visitors.
 
-    === GLOBAL FACTS ===
-    {GLOBAL_FACTS}
+                === GLOBAL FACTS ===
+                {GLOBAL_FACTS}
 
-    === RETRIEVED CONTEXT ===
-    {knowledge}
+                === RETRIEVED CONTEXT ===
+                {knowledge}
 
-    === CONVERSATION HISTORY ===
-    {formatted_history_text}
+                === CONVERSATION HISTORY ===
+                {formatted_history_text}
 
 
-    === GUIDELINES ===
-    1. CRITICAL: Detect the language of the User message: "{message}". 
-    You MUST reply in that exact language — if English, reply in English only.
-    If Arabic, reply in Arabic only. Never mix languages.
-    2. If asked about a city not in the list, apologize and mention available branches.
-    3. For pricing or registration questions, share: unified number 920012673 and WhatsApp 0552812335.
-    4. Be direct and concise.
+                === GUIDELINES ===
+                1. CRITICAL: Detect the language of the User message: "{message}". 
+                You MUST reply in that exact language — if English, reply in English only.
+                If Arabic, reply in Arabic only. Never mix languages.
+                2. If asked about a city not in the list, apologize and mention available branches.
+                3. For pricing or registration questions, share: unified number 920012673 and WhatsApp 0531809939.
+                4. Be direct and concise.
 
-    User: {message}
-    Assistant:
-    """
+                User: {message}
+                Assistant:
+                """
 
 
     return rag_prompt, search_query, good_docs, limited_history

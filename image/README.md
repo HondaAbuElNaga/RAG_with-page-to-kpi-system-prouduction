@@ -7,27 +7,32 @@ cd image
 ```
 
 #### Unix/macOS
+
 ```bash
 source .venv/bin/activate
 ```
 
 #### Windows
+
 ```powershell
 .venv\Scripts\activate
 ```
 
 #### Install dependencies
+
 ```bash
 pip install -r requirements.txt
 ```
 
 #### Run the server
+
 ```bash
 cd src/rag_app
 uvicorn main:app --reload --host 0.0.0.0 --port 8000
 ```
 
 #### Using uv (recommended)
+
 ```bash
 uv sync
 cd src/rag_app
@@ -121,3 +126,12 @@ W62ZTthTZ6A6prn
 - Sales dashboard: https://d14hbi7dyty7wy.cloudfront.net/dashboard
 - Admin (Track): https://d14hbi7dyty7wy.cloudfront.net/trackdashboard
 - Login: https://d14hbi7dyty7wy.cloudfront.net/dashboard/login
+
+## Rag
+chunking: chunk_size: int = 1000, chunk_overlap: int = 200
+    splitting: recursive using RecursiveCharacterTextSplitter
+Context:
+    MEMORY_WINDOW_SIZE = 3
+    SIMILARITY_THRESHOLD = 1.5
+    TOP_K_RESULTS = 5
+Generation:   model="gpt-4o-mini" temperature=0

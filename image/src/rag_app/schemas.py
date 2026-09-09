@@ -1,9 +1,7 @@
 from pydantic import BaseModel
 from typing import List, Tuple, Optional
 # This file will be responsible for receiving and validating data
-# ---------------------------------------------------------------------------
 # Pydantic models
-# ---------------------------------------------------------------------------
 class ChatRequest(BaseModel):
     message: str
     history: Optional[List[Tuple[str, str]]] = []

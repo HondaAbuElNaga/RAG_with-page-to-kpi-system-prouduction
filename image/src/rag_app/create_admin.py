@@ -3,12 +3,10 @@ from models import DashboardUser
 import models
 import hashlib
 
-# ---------------------------------------------------------------------------
 # Change these before running
 # ---------------------------------------------------------------------------
 ADMIN_USERNAME = "mohanad"
 ADMIN_PASSWORD = "Elhonda123@#"
-# ---------------------------------------------------------------------------
 
 Base.metadata.create_all(bind=engine)
 

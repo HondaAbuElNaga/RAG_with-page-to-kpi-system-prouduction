@@ -1,7 +1,18 @@
+# Local virtualenv — Windows-built, ~330MB, useless in the Linux image.
+# `uv sync` builds the real one at /app/.venv during the build.
+.venv
+
 __pycache__
 *.pyc
 .git
 .env
 temp.zip
-# *.db
-# kpi_data.db
+
+# Local dev databases. Production reads them from the EFS volume at /mnt/efs,
+# so baking these in only ships stale rows (including lead PII) inside the image.
+*.db
+*.db-journal
+*.db-wal
+
+# Knowledge-base archive used for manual /admin/upload-db uploads, not at runtime.
+src/rag_app/data/chroma_db.zip

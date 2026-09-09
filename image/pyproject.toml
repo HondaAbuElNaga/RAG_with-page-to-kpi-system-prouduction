@@ -25,6 +25,7 @@ dependencies = [
     # AWS
     "boto3>=1.43.63",
     "botocore[crt]>=1.43.63",
+    "click>=8.1.8",
 ]
 
 [dependency-groups]

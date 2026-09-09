@@ -1,30 +1,34 @@
-version: '3.8'
-
 services:
   rag-app:
+    image: ebrahemhesham/rag-app:${TAG:-v3}
     build:
       context: ./image
       dockerfile: dockerfile
+
     container_name: rag-app
+
     ports:
-      - "8080:80"
+      # 8080 is taken by National Instruments' ApplicationWebServer on this machine.
+      - "8081:80"
     env_file:
       - ./image/.env
     environment:
-      # Database persistent volume path (absolute path inside container)
-      # The app runs from /app/src/rag_app, but we store data in /data for persistence
-      - DB_PATH=/data/kpi_data.db
-      # ChromaDB persistent volume path (absolute path inside container)
-      - CHROMA_PATH=/data/chroma_db
+      # Paths must match the ECS task definition so local Docker reproduces
+      # production exactly. In ECS, /mnt/efs is the EFS volume mount point.
+      - DB_PATH=/mnt/efs/kpi_data.db
+      - CHROMA_PATH=/mnt/efs/chroma_db
+
     volumes:
-      # Bind mount to local data folder (created automatically if it doesn't exist)
-      # This maps ./data on your host to /data inside the container
-      - ./image/src/rag_app/data:/data
+      # EFS volume: this host folder appears at /mnt/efs
+      # inside the container, the same path ECS mounts EFS at.
+      - ./image/src/rag_app/data:/mnt/efs
       # Optional: Mount .env file if needed (uncomment if you want to override)
       # - ./image/.env:/app/.env:ro
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:80/"]
+      # python:3.12-slim ships no curl — use the interpreter that is present.
+      # Hits /health rather than /, which renders the full chat page.
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:80/health', timeout=5).status==200 else 1)"]
       interval: 30s
       timeout: 10s
       retries: 3

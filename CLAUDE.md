@@ -4,9 +4,9 @@
 - **Backend**: FastAPI + Uvicorn
 - **AI**: LangChain + OpenAI (`gpt-4o-mini`, `text-embedding-3-small`)
 - **Vector DB**: ChromaDB (persisted at `CHROMA_PATH`, env-overridable)
-- **App DB**: SQLite via SQLAlchemy ORM (`kpi_data.db`, `sql_app.db`)
+- **App DB**: SQLite via SQLAlchemy ORM (`data/kpi_data.db`)
 - **Auth**: Cookie-based sessions (`dashboard_session`), SHA-256 passwords
-- **Deploy**: Docker → DockerHub → AWS ECS/ECR + EFS for ChromaDB persistence
+- **Deploy**: Docker → DockerHub → AWS ECS/Fargate; EFS mounted at `/mnt/efs` persists both the SQLite DB and ChromaDB
 
 ## Project Layout
 ```
@@ -19,36 +19,47 @@ image/src/rag_app/
   auth.py        — Admin/dashboard auth helpers
   templates/     — Jinja2 HTML templates
   static/js/     — Frontend JS (chat.js)
-  data/chroma_db/— ChromaDB vector store (uploaded via admin panel)
+  data/          — persistent state; ECS mounts EFS over this at /mnt/efs
+    chroma_db/   — ChromaDB vector store (uploaded via admin panel)
+    kpi_data.db  — canonical SQLite app DB
 ```
+
+See `docs/restructure-plan.md` for the proposed backend/frontend split.
 
 ## Run Locally
 ```bash
-# activate venv
-.venv\Scripts\activate          # Windows
-source .venv/bin/activate       # Unix
-
-# run server
-cd image/src/rag_app
-uvicorn main:app --reload --host 0.0.0.0 --port 8000
-
-# or with uv
 cd image && uv sync
 cd src/rag_app && uv run uvicorn main:app --reload --host 0.0.0.0 --port 8000
 ```
+`image/.venv` is a **Windows** venv (uv-managed, CPython 3.12). It does not work under
+WSL — for that, build a separate one with `UV_PROJECT_ENVIRONMENT=.venv-linux uv sync`.
+
+`requirements.txt` is a uv export; `uv sync` is the supported install path.
 
 ## Docker
+All Docker commands run **from the repo root**, not `image/`. `docker-compose.yaml` owns
+the build context, image tag (`$TAG`, default `v3`), port, env, volume and healthcheck,
+so the image tested locally is the one pushed.
 ```bash
-docker build -t my-rag-app .
-docker run -p 80:80 --env-file .env my-rag-app
+docker compose build      # tags ebrahemhesham/rag-app:v3
+docker compose up         # http://localhost:8081
 ```
 
 ## Deploy to AWS
-```bash
-docker tag my-rag-app ebrahemhesham/rag-app:v1
-docker push ebrahemhesham/rag-app:v1
+Set `$TAG` once per shell — inline `TAG=v4 docker ...` is bash-only and fails in cmd
+(`set TAG=v4`) and PowerShell (`$env:TAG = "v4"`). Order matters: `build` creates the
+tag, `push` uploads it.
+```
+set TAG=v4
+docker compose build      # 1. build + tag
+docker compose up -d      # 2. verify on http://localhost:8081
+docker login              # 3.
+docker compose push       # 4. upload
+# then bump the image tag in the task definition and redeploy:
 aws ecs update-service --cluster default --service sstli-chatbot-spot --force-new-deployment
 ```
+Compose builds for the host platform; Fargate runs `LINUX/X86_64`. Building from an ARM
+Mac needs `platform: linux/amd64` on the service.
 
 ---
 
@@ -85,7 +96,9 @@ aws ecs update-service --cluster default --service sstli-chatbot-spot --force-ne
 
 ### Database Migrations
 - Schema changes are applied at startup via `ALTER TABLE ... ADD COLUMN` in `run_migrations()`.
-- Wrap each migration in try/except — idempotent, safe to re-run.
+- `run_migrations()` reads `PRAGMA table_info` per table first and only ALTERs columns that
+  are genuinely missing, so a current schema prints one line, not 17 caught exceptions.
+- A failed ALTER now prints `✗ ... FAILED` — treat it as a real error, not noise.
 - Never drop or rename columns in migrations — only ADD new ones.
 
 ### Auth
@@ -126,8 +139,22 @@ aws ecs update-service --cluster default --service sstli-chatbot-spot --force-ne
 | Var | Purpose |
 |-----|---------|
 | `OPENAI_API_KEY` | Required — OpenAI API access |
-| `CHROMA_PATH` | Optional — override ChromaDB path (used for EFS mount in ECS) |
+| `DB_PATH` | SQLite file. ECS: `/mnt/efs/kpi_data.db`. Local default: `data/kpi_data.db` |
+| `CHROMA_PATH` | ChromaDB dir. ECS: `/mnt/efs/chroma_db`. Local default: `data/chroma_db` |
 | `ADMIN_USER` / `ADMIN_PASS` | Basic auth for `/admin/*` routes |
+
+**Path resolution**: relative `DB_PATH`/`CHROMA_PATH` values resolve against the
+application directory (`image/src/rag_app/`), never the shell's working directory — the
+CWD you launch uvicorn from cannot change which database you open. Absolute paths
+(as ECS uses) are taken as-is.
+
+**Canonical local DB**: `image/src/rag_app/data/kpi_data.db`. That folder is what the
+EFS volume mounts over in ECS and what compose bind-mounts to `/mnt/efs`, so local runs
+and containers share one location.
+
+⚠️ Secrets are currently plaintext in `image/.env` and in the `environment` blocks of
+both task definitions under `docs/`. Move them to Secrets Manager (`secrets` +
+`valueFrom`) before wider exposure.
 
 ## External URLs (Production)
 - Chat (AR): `/`  

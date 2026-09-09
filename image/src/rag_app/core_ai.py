@@ -24,7 +24,12 @@ BASE_DIR = Path(__file__).resolve().parent
 CHROMA_PATH_ENV = os.getenv("CHROMA_PATH")
 
 if CHROMA_PATH_ENV:
+    # Relative values resolve against the code directory, not the CWD, so the
+    # store you open never depends on where uvicorn was launched from.
     CHROMA_PATH = Path(CHROMA_PATH_ENV)
+    if not CHROMA_PATH.is_absolute():
+        CHROMA_PATH = BASE_DIR / CHROMA_PATH
+    CHROMA_PATH = CHROMA_PATH.resolve()
 else:
     CHROMA_PATH = BASE_DIR / "data" / "chroma_db"
 
@@ -37,7 +42,7 @@ RECENT_TOPICS_LIMIT = 30        # max distinct topics sent to the topic classifi
 INTENT_HISTORY_LIMIT = 15       # max recent user messages sent to intent detection
 
 embeddings_model = OpenAIEmbeddings(model="text-embedding-3-small")
-llm = ChatOpenAI(temperature=0, model="gpt-4o-mini")
+llm = ChatOpenAI(temperature=0.1, model="gpt-4o-mini")
 vector_store = None
 
 # Global Facts for RAG

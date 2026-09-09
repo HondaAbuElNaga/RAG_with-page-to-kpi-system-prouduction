@@ -17,10 +17,8 @@ AWS_DEPLOYMENT.md
 sstli chatbot logs/
 # --- Project Specific Fixes ---
 
-# Fix casing: Your screenshot shows "Media", but the original file had "media"
 /backend/Media/
 /backend/media/
-
 # Explicitly ignore the backend environment file containing secrets
 /backend/.env
 
@@ -272,3 +270,5 @@ out/
 # Project-specific
 /backend/media/
 /backend/logs/
+# Exported report artifacts (regenerable from the app; contain customer chat data)
+logs/

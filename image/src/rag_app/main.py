@@ -1097,14 +1097,31 @@ async def run_migrations():
         ("chat_logs",  "retrieved_context", "TEXT"),
 
     ]
+    added = 0
     with engine.connect() as conn:
+        # Ask SQLite what each table already has, so an up-to-date schema is a
+        # no-op instead of 17 caught exceptions printed on every boot.
+        existing: dict[str, set[str]] = {}
+        for table in {t for t, _, _ in columns}:
+            rows = conn.execute(text(f"PRAGMA table_info({table})")).fetchall()
+            existing[table] = {r[1] for r in rows}
+
         for table, col, col_type in columns:
+            if not existing[table]:
+                print(f"--- [MIGRATE] ! {table}: table missing, skipped ---")
+                continue
+            if col in existing[table]:
+                continue
             try:
                 conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {col} {col_type}"))
                 conn.commit()
+                existing[table].add(col)
+                added += 1
                 print(f"--- [MIGRATE] ✓ {table}.{col} added ---")
             except Exception as e:
-                print(f"--- [MIGRATE] • {table}.{col}: already exists ({e}) ---")
+                print(f"--- [MIGRATE] ✗ {table}.{col} FAILED: {e} ---")
+
+    print(f"--- [MIGRATE] schema up to date ({added} column(s) added) ---")
 
 @app.post("/dashboard/request-report")
 async def request_report(

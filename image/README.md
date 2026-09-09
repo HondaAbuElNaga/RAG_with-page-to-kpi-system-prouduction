@@ -20,78 +20,88 @@ source .venv/bin/activate
 
 #### Install dependencies
 
+`requirements.txt` is a uv export kept for tooling that needs it; `uv sync` is the
+supported path and the one the Docker build uses.
+
 ```bash
-pip install -r requirements.txt
+uv sync
 ```
 
 #### Run the server
 
-```bash
-cd src/rag_app
-uvicorn main:app --reload --host 0.0.0.0 --port 8000
-```
-
-#### Using uv (recommended)
+From `image/`:
 
 ```bash
-uv sync
 cd src/rag_app
 uv run uvicorn main:app --reload --host 0.0.0.0 --port 8000
 ```
 
+`DB_PATH` and `CHROMA_PATH` in `.env` are relative and resolve against the application
+directory, not the shell's working directory, so the same database is opened no matter
+where you launch from.
+
 ## 2. Docker image
 
-### Build
+**All Docker commands run from the repo root, not `image/`.** `docker-compose.yaml`
+owns the build context, image tag, port, env vars, volume mount and healthcheck, so
+the image you test locally is byte-identical to the one you push.
+
+Container paths mirror production: the EFS volume is mounted at **`/mnt/efs`** in ECS,
+and compose bind-mounts `image/src/rag_app/data` to the same path.
+
+### Build and test
 
 ```bash
-docker build -t my-rag-app .
+docker compose build      # builds and tags ebrahemhesham/rag-app:v3
+docker compose up         # http://localhost:8081
 ```
 
-### Run locally for testing
+### Setting the version tag
 
-**Preferred: docker-compose** (from the repo root, not `image/`) — `docker-compose.yaml` already wires up the port, env vars, data volume mount, and a healthcheck:
+The image tag comes from `$TAG`, defaulting to `v3`. **Set it once per shell session** —
+the syntax differs, and the inline `TAG=v4 docker ...` form works only in bash:
 
-```bash
-docker-compose up
+| Shell | Command |
+|---|---|
+| cmd.exe | `set TAG=v4` |
+| PowerShell | `$env:TAG = "v4"` |
+| bash / WSL | `export TAG=v4` |
+
+Confirm it took effect before building — this prints the tag compose will actually use:
+
 ```
-
-**Manual alternative**, if you don't want compose (from `image/`):
-
-```bash
-docker run -p 8080:80 --env-file .env \
-    -e CHROMA_PATH=/data/chroma_db \
-    -e DB_PATH=/data/kpi_data.db \
-    -v "$(pwd)/src/rag_app/data:/data" \
-    my-rag-app
+docker compose config --images
 ```
-
-On Windows PowerShell, replace `$(pwd)/src/rag_app/data` with the absolute path to `image/src/rag_app/data`, and the trailing `\` line continuations with `` ` ``.
 
 ## 3. Deployment to AWS (ECS & ECR)
 
-### Push to DockerHub
+Run these in order. `build` is what creates and tags the image; `push` uploads that exact
+tag, so pushing before building has nothing to upload.
 
-Bump the version tag each release:
+```
+set TAG=v4                 (or the equivalent for your shell, above)
 
-```bash
-docker build -t ebrahemhesham/rag-app:v3 ./image
-docker login
-docker push ebrahemhesham/rag-app:v3
+docker compose build       # 1. build and tag
+docker compose up -d       # 2. verify on http://localhost:8081
+docker login               # 3.
+docker compose push        # 4. upload to DockerHub
 ```
 
-### Run the versioned image (sanity check before/after pushing)
+### Verify a published image
 
-From the repo root — same command whether you just built it locally or pulled it back down from DockerHub (`docker pull ebrahemhesham/rag-app:v3` first, in the latter case):
+Optional, and only *after* pushing — this replaces your local image with what DockerHub
+actually holds, to prove the upload is good:
 
-```bash
-docker run -p 8080:80 --env-file ./image/.env \
-    -e CHROMA_PATH=/data/chroma_db \
-    -e DB_PATH=/data/kpi_data.db \
-    -v "$(pwd)/image/src/rag_app/data:/data" \
-    ebrahemhesham/rag-app:v3
+```
+docker compose pull
+docker compose up -d
 ```
 
-Visit `http://localhost:8080` and confirm the app comes up before updating the ECS service.
+Visit `http://localhost:8081` and confirm the app comes up before updating the ECS service.
+
+> Compose builds for the host platform. Fargate here runs `LINUX/X86_64`, which matches
+> an x86 Windows or Linux host. Building from an ARM Mac requires
+> `platform: linux/amd64` on the service, or the task will not start.
 
 ### Update AWS ECS service
 
@@ -118,8 +128,6 @@ fields @timestamp, question, context, answer
 | sort @timestamp desc
 ```
 
-W62ZTthTZ6A6prn
-
 ## Production URLs
 
 - Chat: https://d14hbi7dyty7wy.cloudfront.net/chat
@@ -128,10 +136,14 @@ W62ZTthTZ6A6prn
 - Login: https://d14hbi7dyty7wy.cloudfront.net/dashboard/login
 
 ## Rag
+
 chunking: chunk_size: int = 1000, chunk_overlap: int = 200
     splitting: recursive using RecursiveCharacterTextSplitter
+
 Context:
     MEMORY_WINDOW_SIZE = 3
     SIMILARITY_THRESHOLD = 1.5
     TOP_K_RESULTS = 5
-Generation:   model="gpt-4o-mini" temperature=0
+
+Generation:
+   model="gpt-4o-mini" temperature=0
